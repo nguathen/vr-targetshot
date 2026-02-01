@@ -1,6 +1,6 @@
 # Task Management
 
-> Last Updated: 2026-01-31
+> Last Updated: 2026-02-01
 > Purpose: Active work queue. Keep this file short.
 > [View Completed Tasks Archive](./tasks-archive.md)
 
@@ -12,7 +12,7 @@
 |--------|-------|
 | In Progress | 0 |
 | Pending | 0 |
-| Completed | 98 |
+| Completed | 107 |
 
 > V1–V13 — all completed (68 tasks).
 > **V14 Content & QoL Upgrade (TASK-270~277)** — completed.
@@ -20,104 +20,127 @@
 > **V16 Gameplay Engagement (TASK-287~291)** — completed.
 > **V17 Player Retention & Social (TASK-292~296)** — completed.
 > **V18 Reflex Mastery (TASK-300~304)** — completed.
+> **V19 Adrenaline Surge (TASK-310~314)** — completed.
+> **V20 Visual & Interaction Upgrade (TASK-320~323)** — completed.
 
 ---
 
-## V18 — Reflex Mastery
+## V20 — Visual & Interaction Upgrade
 
-> **Goal:** Tăng độ phản xạ người chơi thông qua cognitive challenges, reaction-time feedback, và game mode mới tập trung vào tốc độ.
+> **Goal:** Nâng cấp chất lượng hình ảnh và tương tác bằng cách tận dụng A-Frame ecosystem: GPU particles, 3D models, dissolve shader, hand tracking. Từ prototype visuals → polished game.
 
-## TASK-300: Reaction Time Tracker + HUD Display
+## TASK-320: GPU Particle System
 **Priority:** High
-**Status:** Pending
+**Status:** Completed (2026-02-01)
 **Assigned:** /dev
 
 ### Description
-Đo và hiển thị thời gian phản xạ (ms) cho mỗi lần bắn trúng target. Tính từ lúc target spawn xong (sau telegraph 500ms) đến lúc bị hit. Hiển thị trên HUD dạng "⚡ 320ms" và lưu average/best reaction time vào profile stats.
+Thay thế hệ thống particle hiện tại (manual entity spawning, capped ~15 entities) bằng `aframe-particle-system-component` (GPU-accelerated). Áp dụng cho: weather (rain/dust/snow), target destruction burst, muzzle flash, power-up activation, combo energy, ambient floating particles. Giữ nguyên fallback cho low-end devices.
 
 ### Acceptance Criteria
-- [ ] Mỗi target tracking `spawnReadyTime` (sau telegraph)
-- [ ] Khi hit, tính `reactionTime = hitTime - spawnReadyTime`
-- [ ] Floating damage number hiện thêm reaction time (ms) với color code: <200ms xanh lá, <400ms vàng, >400ms đỏ
-- [ ] HUD element `hud-reaction` hiển thị average reaction time trong game hiện tại
-- [ ] Lưu `bestReactionTime`, `avgReactionTime` vào profile qua `saveProfile()`
-- [ ] Stats dashboard hiện reaction time stats
+- [ ] Install `aframe-particle-system-component` (vendor vào `client/src/js/vendor/` — không dùng CDN)
+- [ ] Register component trong `index.html` trước `<a-scene>`
+- [ ] **Weather particles**: Replace `weather-system.js` entity spawning bằng particle-system preset per theme:
+  - Cyber: neon rain (blue, 2000 particles, downward)
+  - Sunset: dust motes (orange, 800 particles, slow drift)
+  - Space: star field (white, 1500 particles, slow radial)
+  - Underwater: bubbles (cyan, 1000 particles, upward)
+- [ ] **Target destroy**: Replace `particle-burst.js` entity spawning bằng on-demand particle emitter (15 particles, burst mode, 500ms lifetime, color matches target)
+- [ ] **Muzzle flash**: Particle burst at weapon tip on shoot (5 particles, 100ms, weapon color)
+- [ ] **Ambient particles**: Replace `_spawnAmbientParticles()` trong `game-main.js` (70 entities) bằng 1 particle-system entity (2000 particles)
+- [ ] **Power-up activation**: Radial particle burst khi power-up collected (20 particles, power-up color)
+- [ ] Performance: Maintain 72fps on Quest 2 (total particles < 5000 active)
+- [ ] Settings toggle: `settings.particles` = high/low/off. Low = halve particle counts. Off = disable all particle systems
+- [ ] Cleanup all old entity-spawning particle code sau khi verify GPU particles work
 
 ---
 
-## TASK-301: Color-Match Targets (Cognitive Reflex)
+## TASK-321: 3D Target Models (GLTF)
 **Priority:** High
-**Status:** Pending
+**Status:** Completed (2026-02-01)
 **Assigned:** /dev
 
 ### Description
-Target mới spawn với 1 trong 3 màu (Red/Blue/Green). HUD hiện màu yêu cầu ("Shoot: 🔴"). Chỉ bắn đúng màu mới được điểm, bắn sai bị trừ điểm và reset combo. Màu yêu cầu thay đổi mỗi 5-8s. Buộc người chơi phải nhận diện nhanh trước khi bắn.
+Thay thế primitive geometries (icosahedron, octahedron, sphere, torus, etc.) cho targets bằng low-poly GLTF models. Tạo procedural GLTF models bằng Three.js BufferGeometry export (không cần external 3D assets). Mỗi target type có model riêng biệt, dễ nhận diện hơn primitives.
 
 ### Acceptance Criteria
-- [ ] Thêm target type `colorMatch` (weight 25, spawn từ wave 3+)
-- [ ] 3 màu rõ rệt: Red (#ff4444), Blue (#4488ff), Green (#44ff44)
-- [ ] HUD indicator "SHOOT: 🔴/🔵/🟢" đổi mỗi 5-8s ngẫu nhiên
-- [ ] Bắn đúng màu: 30 points + combo tiếp tục
-- [ ] Bắn sai màu: -15 points + combo reset + haptic warning
-- [ ] Color-match targets có ring glow pulsing theo màu của chúng
-- [ ] Tương thích colorblind mode (dùng shape thay vì chỉ color)
+- [ ] Tạo `client/src/js/game/target-models.js` — module generate GLTF blobs từ Three.js geometries:
+  - `standard`: Beveled cube với inner glow core (thay icosahedron)
+  - `speed`: Arrow/dart shape, elongated (thay octahedron)
+  - `heavy`: Armored sphere với hexagonal plates (thay dodecahedron)
+  - `bonus`: Spinning coin/gem shape (thay torus)
+  - `decoy`: Cracked sphere với dark aura (thay sphere)
+  - `powerup`: Glowing crystal cluster (thay torus-knot)
+  - `blink`: Phasing ghost shape — outer wireframe shell + inner solid core
+  - `peripheral`: Radar dish / satellite shape
+  - `debuff`: Skull-like shape (angular, menacing)
+  - `colorMatch`: Giữ shape differentiation hiện tại nhưng thêm detail
+- [ ] Models auto-generated on first load, cached trong memory (no file downloads)
+- [ ] `target-system.js` sử dụng models từ `target-models.js` thay vì primitive elements
+- [ ] Mỗi model có: base mesh + emissive glow mesh + animation-ready structure
+- [ ] Scale tương đương với primitive radius hiện tại (không thay đổi gameplay hitbox)
+- [ ] Boss targets: scaled-up version với extra detail layers
+- [ ] Performance: Model generation < 500ms total, reuse instances via `.clone()`
+- [ ] Fallback: Nếu model generation fail → revert về primitive geometry (graceful degradation)
 
 ---
 
-## TASK-302: Reflex Rush Game Mode
-**Priority:** High
-**Status:** Pending
-**Assigned:** /dev
-
-### Description
-Game mode mới tập trung 100% vào tốc độ phản xạ. Target xuất hiện 1 lần 1, lifetime bắt đầu 2s rồi giảm dần đến 500ms. Miss = game over. Leaderboard riêng cho mode này. Mỗi hit thành công hiện reaction time.
-
-### Acceptance Criteria
-- [ ] Thêm `reflexRush` vào GAME_MODES: 1 target/lần, lifetime giảm dần, miss = lose life (3 lives)
-- [ ] Initial lifetime 2000ms, giảm 50ms mỗi lần hit thành công, minimum 500ms
-- [ ] Chỉ spawn 1 target tại 1 thời điểm, vị trí random 360°
-- [ ] Mỗi hit hiện reaction time lớn ở giữa màn hình (fade out 500ms)
-- [ ] Speed bonus: <200ms = 3x points, <400ms = 2x, <600ms = 1.5x
-- [ ] Leaderboard submit cho mode `reflexRush`
-- [ ] Unlock level 3
-
----
-
-## TASK-303: Fake-Out Targets (Blink Targets)
+## TASK-322: Dissolve Shader Effect
 **Priority:** Medium
-**Status:** Pending
+**Status:** Completed (2026-02-01)
 **Assigned:** /dev
 
 ### Description
-Target mới nhấp nháy giữa hittable (sáng) và invulnerable (tối/ghost) trạng thái. Chu kỳ 400-600ms. Phải bắn đúng lúc sáng. Bắn lúc tối = miss + combo reset. Train timing precision.
+Custom dissolve shader cho target destruction. Khi target bị hit (HP = 0), thay vì remove ngay, target dissolve trong 400ms sử dụng Perlin noise pattern. Particles bay ra từ dissolving edges. Áp dụng cho tất cả target types với color tint theo target color.
 
 ### Acceptance Criteria
-- [ ] Thêm target type `blink` (weight 10, spawn từ wave 5+)
-- [ ] Toggle visible/ghost mỗi 400-600ms (random per target)
-- [ ] Visible state: bright glow, material opacity 1.0, hittable
-- [ ] Ghost state: dim, material opacity 0.2, invulnerable (shots pass through)
-- [ ] Hit khi visible: 35 points
-- [ ] Hit khi ghost: -10 points + combo reset + red flash feedback
-- [ ] Clear visual distinction (ghost có wireframe overlay)
+- [ ] Tạo `client/src/js/components/dissolve-effect.js` — A-Frame component
+- [ ] Custom ShaderMaterial sử dụng Perlin/Simplex noise:
+  - Uniform `dissolveProgress` (0.0 → 1.0 over 400ms)
+  - Dissolve từ edges vào center
+  - Edge glow: bright emission color tại dissolve boundary (2px wide)
+  - Alpha cutoff theo noise threshold
+- [ ] Register component: `<a-entity dissolve-effect="color: #ff4444; duration: 400">`
+- [ ] Trigger: Khi target bị destroy, apply dissolve thay vì instant remove
+- [ ] Color tint: Dissolve edge color = target's primary color
+- [ ] Particle emission: Spawn small particles along dissolve edge (reuse TASK-320 GPU particles nếu available)
+- [ ] Audio: Subtle dissolve sound (procedural — rising noise sweep)
+- [ ] Performance: Shader compiled once, reused via material cloning. Max 5 simultaneous dissolves
+- [ ] Settings: `settings.dissolveEffect` toggle. Off = instant remove (legacy behavior)
+- [ ] Quest 2 compatible: Test shader trên Quest 2 browser, fallback nếu shader compilation fails
 
 ---
 
-## TASK-304: Peripheral Vision Trainer
-**Priority:** Medium
-**Status:** Pending
+## TASK-323: Hand Tracking Controls
+**Priority:** High
+**Status:** Completed (2026-02-01)
 **Assigned:** /dev
 
 ### Description
-Spawn target ở rìa tầm nhìn (90-150° từ hướng nhìn) với audio spatial cue mạnh. Target lifetime ngắn (2.5s). Buộc người chơi phải quay đầu nhanh để bắn. Bonus points cho peripheral hits.
+Thêm hand tracking support cho Quest 2/3. Sử dụng A-Frame `hand-tracking-controls` component. Pinch gesture = shoot, hand raise = pause, open palm = menu. Auto-detect: nếu có controllers thì dùng controllers, nếu không thì hand tracking. Larger hit targets khi dùng hands (compensate cho lower accuracy).
 
 ### Acceptance Criteria
-- [ ] Thêm target type `peripheral` (weight 8, spawn từ wave 4+)
-- [ ] Spawn ở góc 90-150° so với camera forward vector (trái hoặc phải)
-- [ ] Spatial audio cue rõ ràng (directional whoosh từ hướng target)
-- [ ] Lifetime 2500ms (ngắn, buộc phải quay nhanh)
-- [ ] 40 points per hit (cao hơn standard vì khó hơn)
-- [ ] Visual: bright flashing border ở edge of FOV khi peripheral target active
-- [ ] Tracking stat: `peripheralHits` lưu vào profile
+- [ ] Tạo `client/src/js/components/hand-shoot.js` — A-Frame component cho hand-based shooting
+- [ ] Detect input mode: `navigator.xr` session check cho `hand-tracking` feature
+  - Controller detected → existing `shoot-controls.js` (no change)
+  - Hand tracking detected → activate `hand-shoot` component
+- [ ] **Hand entities** trong `index.html`:
+  - Left hand: `hand-tracking-controls="hand: left; modelStyle: mesh; modelColor: #44aaff"`
+  - Right hand: `hand-tracking-controls="hand: right; modelStyle: mesh; modelColor: #ff4444"` + `hand-shoot`
+- [ ] **Shoot gesture**: Right hand pinch (index + thumb) = fire raycaster from index finger tip
+  - Raycaster direction: from index finger tip, along finger pointing direction
+  - Visual: thin laser line from fingertip (same as controller laser)
+  - Audio: same shoot SFX
+  - Haptic: N/A (hand tracking không có haptic)
+- [ ] **Aim assist**: Khi hand tracking active, target hitbox tăng 1.5x (compensate inaccuracy)
+- [ ] **Crosshair**: Hiện crosshair dot tại raycaster intersection point
+- [ ] **Menu interaction**: Left hand index finger point + pinch = click on menu buttons (replaces controller cursor)
+- [ ] **Pause gesture**: Both hands open palm facing camera for 1s = toggle pause
+- [ ] **HUD indicator**: Hiện "🤚 Hand Mode" hoặc "🎮 Controller Mode" khi game start (fade after 3s)
+- [ ] **Settings**: `settings.handTracking` = auto/on/off. Auto = detect, On = force hands, Off = controllers only
+- [ ] **Smooth transition**: Nếu player pick up controller mid-game → seamlessly switch to controller mode
+- [ ] Fallback: Non-Quest browsers hoặc Quest 2 without hand tracking firmware → component không activate, no errors
+- [ ] Test: Verify cả 2 modes work trên Quest 2 (controller) và Quest 3 (hand tracking)
 
 ---
 
@@ -125,6 +148,15 @@ Spawn target ở rìa tầm nhìn (90-150° từ hướng nhìn) với audio spa
 
 | Task | Title | Completed |
 |------|-------|-----------|
+| TASK-320 | GPU Particle System | 2026-02-01 |
+| TASK-321 | 3D Target Models (GLTF) | 2026-02-01 |
+| TASK-322 | Dissolve Shader Effect | 2026-02-01 |
+| TASK-323 | Hand Tracking Controls | 2026-02-01 |
+| TASK-310 | Tension Vignette & Heartbeat | 2026-01-31 |
+| TASK-311 | Sudden Surge Events | 2026-01-31 |
+| TASK-312 | Power-Down Debuffs | 2026-01-31 |
+| TASK-313 | Closing Arena Walls | 2026-01-31 |
+| TASK-314 | Live Accuracy HUD + PB Pace | 2026-01-31 |
 | TASK-300 | Reaction Time Tracker + HUD | 2026-01-31 |
 | TASK-301 | Color-Match Targets | 2026-01-31 |
 | TASK-302 | Reflex Rush Game Mode | 2026-01-31 |

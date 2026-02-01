@@ -277,7 +277,7 @@ function switchToGame() {
   gameContent.setAttribute('visible', 'true');
 
   // Show HUD
-  ['crosshair', 'crosshair-outer', 'crosshair-dot', 'hud-score', 'hud-timer', 'hud-combo', 'hud-lives', 'hud-weapon', 'hud-level', 'hud-powerup', 'hud-reaction', 'hud-color-match', 'game-cursor'].forEach(id => {
+  ['crosshair', 'crosshair-outer', 'crosshair-dot', 'hud-score', 'hud-timer', 'hud-combo', 'hud-lives', 'hud-weapon', 'hud-level', 'hud-powerup', 'hud-reaction', 'hud-color-match', 'hud-accuracy', 'hud-pb-pace', 'hud-streak', 'game-cursor'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.setAttribute('visible', 'true');
   });
@@ -328,7 +328,7 @@ function switchToMenu() {
   menuContent.setAttribute('visible', 'true');
 
   // Hide HUD
-  ['crosshair', 'crosshair-outer', 'crosshair-dot', 'hud-score', 'hud-timer', 'hud-combo', 'hud-lives', 'hud-weapon', 'hud-level', 'hud-powerup', 'hud-reaction', 'hud-color-match', 'game-cursor'].forEach(id => {
+  ['crosshair', 'crosshair-outer', 'crosshair-dot', 'hud-score', 'hud-timer', 'hud-combo', 'hud-lives', 'hud-weapon', 'hud-level', 'hud-powerup', 'hud-reaction', 'hud-color-match', 'hud-accuracy', 'hud-pb-pace', 'hud-streak', 'hud-surge', 'hud-debuff', 'game-cursor'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.setAttribute('visible', 'false');
   });

@@ -89,8 +89,50 @@ class WeatherSystem {
     if (this._running || !this._config || !this._container) return;
     this._running = true;
 
-    // Pre-populate particles
     const cfg = this._config;
+
+    // TASK-320: Try GPU particles first, fallback to entity-based
+    if (typeof AFRAME !== 'undefined' && AFRAME.components['gpu-particles']) {
+      this._useGPU = true;
+      this._startGPU(cfg);
+    } else {
+      this._useGPU = false;
+      this._startLegacy(cfg);
+    }
+  }
+
+  _startGPU(cfg) {
+    const presetMap = { rain: 'rain', dust: 'dust', bubbles: 'bubbles' };
+    const preset = presetMap[cfg.type] || 'dust';
+    const gpuEl = document.createElement('a-entity');
+    gpuEl.id = 'weather-gpu-particles';
+    gpuEl.setAttribute('gpu-particles', {
+      preset,
+      count: cfg.count * 30, // GPU can handle many more
+      color: cfg.colors[0],
+      color2: cfg.colors[1] || cfg.colors[0],
+      size: cfg.sizeMax,
+      speed: (cfg.speedMin + cfg.speedMax) / 2,
+      area: 30,
+      height: cfg.spawnY,
+      lifetime: 6000,
+      opacity: 0.5,
+    });
+    this._container.appendChild(gpuEl);
+    this._gpuEl = gpuEl;
+
+    // Meteor timer for space theme (keep entity-based, it's only occasional)
+    if (cfg.meteor) {
+      this._meteorTimer = setInterval(() => {
+        if (this._running && Math.random() < cfg.meteorChance) {
+          this._spawnMeteor();
+        }
+      }, cfg.meteorInterval);
+    }
+  }
+
+  _startLegacy(cfg) {
+    // Pre-populate particles
     for (let i = 0; i < cfg.count; i++) {
       this._spawnParticle(true);
     }
@@ -112,6 +154,12 @@ class WeatherSystem {
     this._running = false;
     if (this._tick) { clearInterval(this._tick); this._tick = null; }
     if (this._meteorTimer) { clearInterval(this._meteorTimer); this._meteorTimer = null; }
+
+    // Clean GPU particle element
+    if (this._gpuEl && this._gpuEl.parentNode) {
+      this._gpuEl.parentNode.removeChild(this._gpuEl);
+      this._gpuEl = null;
+    }
 
     // Return all to pool
     this._particles.forEach(p => {

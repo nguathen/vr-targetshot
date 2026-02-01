@@ -465,6 +465,39 @@ V15 splits into Tier 1 (Production-Ready) and Tier 2 (UX Polish):
 - Negative: Service worker adds complexity to deployment (cache invalidation)
 - Risks: SW cache staleness — mitigated with version-based cache busting
 
+### ADR-011: V20 Visual & Interaction Upgrade — Hand Tracking, 3D Models, GPU Particles, Dissolve FX
+
+**Status:** Accepted
+**Date:** 2026-02-01
+
+**Context:**
+Game đã rất mature (103 tasks, V1-V19) nhưng visuals vẫn dùng primitive geometries (icosahedron, sphere, etc.) và manual entity-spawning cho particles. A-Frame ecosystem có sẵn nhiều components mạnh chưa được tận dụng. Quest 3 users ngày càng prefer hand tracking thay vì controllers.
+
+**Decision:** 4 upgrades chia 2 tier:
+
+**Tier 1 — Visual Overhaul:**
+1. **GPU Particle System** — Replace manual entity spawning bằng `aframe-particle-system-component`. GPU-accelerated, hỗ trợ 5000+ particles cho rain, explosions, muzzle flash, target trails
+2. **3D Target Models (GLTF)** — Replace primitive geometries bằng low-poly GLTF models cho targets (robot drone, crystal, skull debuff, etc.). Weapon models upgrade từ procedural → GLTF
+3. **Dissolve Shader Effect** — Custom shader cho target destruction: Perlin noise dissolve thay vì instant remove. Áp dụng cho tất cả target types
+
+**Tier 2 — Interaction:**
+4. **Hand Tracking Controls** — `hand-tracking-controls` component cho Quest 2/3. Pinch-to-shoot, hand raise to pause, gesture reload. Fallback graceful cho controller users
+
+**Consequences:**
+- Positive: Visual quality jump lớn — từ prototype look → polished game
+- Positive: GPU particles giải phóng main thread, cho phép nhiều particles hơn (100→5000+)
+- Positive: Hand tracking mở rộng audience (no-controller play)
+- Positive: GLTF models cho phép community contribute assets
+- Negative: GLTF models tăng initial load size (~2-5MB) — mitigated by lazy loading + SW cache
+- Negative: Hand tracking accuracy thấp hơn controllers — mitigated by larger hit targets in hand mode
+- Risk: Dissolve shader có thể gây performance drop trên Quest 2 — mitigated by LOD/fallback to instant remove
+- Risk: `aframe-particle-system-component` dependency — mitigated by vendoring
+
+**Alternatives Considered:**
+1. Three.js Points (raw) — rejected: too low-level, A-Frame component wraps nicely
+2. Babylon.js migration — rejected: too disruptive, A-Frame ecosystem đủ mạnh
+3. Full environment component — deferred to V21: cần evaluate performance trên Quest 2 trước
+
 ### ADR Template
 
 ```markdown

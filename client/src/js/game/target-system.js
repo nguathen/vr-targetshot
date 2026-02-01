@@ -3,6 +3,8 @@ import audioManager from '../core/audio-manager.js';
 import authManager from '../core/auth-manager.js';
 import powerUpManager from './power-up-manager.js';
 import { getSettings, remapColor } from './settings-util.js';
+import tensionSystem from './tension-system.js';
+import targetModels from './target-models.js';
 
 const BASE_POINTS = 10;
 // 360-degree spawn: distance bands (close/mid/far), full height range, hemisphere bias
@@ -24,6 +26,7 @@ const TARGET_MATERIALS = {
   powerup:  { metalness: 0.9, roughness: 0.1, emissive: '#00ffaa', emissiveIntensity: 1.0 },
   blink:    { metalness: 0.8, roughness: 0.2, emissive: '#ff00ff', emissiveIntensity: 0.8 },
   peripheral: { metalness: 0.7, roughness: 0.2, emissive: '#ff8800', emissiveIntensity: 0.9 },
+  debuff:     { metalness: 0.5, roughness: 0.4, emissive: '#880044', emissiveIntensity: 0.7 },
 };
 
 const TARGET_TYPES = {
@@ -35,6 +38,7 @@ const TARGET_TYPES = {
   powerup:   { weight: 5,  points: 10,  radius: 0.35, geometry: 'a-torus-knot', color: '#00ffaa', hp: 1, speed: 1.5, lifetime: 3000, coins: 0 },
   blink:     { weight: 0,  points: 35,  radius: 0.28, geometry: 'a-icosahedron', color: '#ff00ff', hp: 1, speed: 0, lifetime: null, coins: 0 },
   peripheral:{ weight: 0,  points: 40,  radius: 0.3,  geometry: 'a-icosahedron', color: '#ff8800', hp: 1, speed: 0, lifetime: 2500, coins: 0 },
+  debuff:    { weight: 0,  points: 0,   radius: 0.2,  geometry: 'a-sphere', color: '#880044', hp: 1, speed: 0, lifetime: 4000, coins: 0 },
 };
 
 // TASK-301: Color-match colors
@@ -619,6 +623,12 @@ class TargetSystem {
       return;
     }
 
+    // TASK-312: 5% chance to spawn debuff instead of powerup (wave 4+, not during surge/active debuff)
+    if (typeId === 'powerup' && this._wave >= 4 && !tensionSystem.isSurgeActive && !tensionSystem.activeDebuff && Math.random() < 0.5) {
+      typeId = 'debuff';
+      type = TARGET_TYPES.debuff;
+    }
+
     // TASK-304: Peripheral targets spawn at 90-150° from camera
     let spawnPos;
     if (typeId === 'peripheral') {
@@ -642,6 +652,36 @@ class TargetSystem {
       if (!this._running) return;
       this._spawnTargetAt(typeId, type, spawnPos);
     }, 500);
+  }
+
+  _applyPrimitiveMaterial(el, type, typeId, color, settings) {
+    const matProps = TARGET_MATERIALS[typeId] || TARGET_MATERIALS.standard;
+    const emissive = remapColor(matProps.emissive, settings);
+    el.setAttribute('material', `color: ${color}; metalness: ${matProps.metalness}; roughness: ${matProps.roughness}; emissive: ${emissive}; emissiveIntensity: ${matProps.emissiveIntensity}`);
+    el.setAttribute('shadow', 'cast: true; receive: false');
+
+    // Wireframe overlay for visual depth
+    if (typeId !== 'decoy') {
+      const wire = document.createElement(type.geometry === 'a-torus' ? 'a-torus' : type.geometry === 'a-torus-knot' ? 'a-torus-knot' : 'a-sphere');
+      if (type.geometry === 'a-torus') {
+        wire.setAttribute('radius', String(type.radius * 1.05));
+        wire.setAttribute('radius-tubular', '0.065');
+        wire.setAttribute('segments-radial', '8');
+        wire.setAttribute('segments-tubular', '24');
+      } else if (type.geometry === 'a-torus-knot') {
+        wire.setAttribute('radius', String(type.radius * 0.65));
+        wire.setAttribute('radius-tubular', '0.05');
+      } else {
+        wire.setAttribute('radius', String(type.radius * 1.05));
+      }
+      wire.setAttribute('material', `color: ${color}; wireframe: true; opacity: 0.15; transparent: true`);
+      el.appendChild(wire);
+    } else {
+      const wire = document.createElement('a-sphere');
+      wire.setAttribute('radius', String(type.radius * 1.08));
+      wire.setAttribute('material', `color: #ff0000; wireframe: true; opacity: 0.2; transparent: true`);
+      el.appendChild(wire);
+    }
   }
 
   _spawnTelegraph(pos, typeId) {
@@ -726,35 +766,26 @@ class TargetSystem {
     const settings = getSettings();
     const rawColor = type.color || this._randomColor();
     const color = remapColor(rawColor, settings);
-    // 3D materials: metallic + emissive for sci-fi look
-    const matProps = TARGET_MATERIALS[typeId] || TARGET_MATERIALS.standard;
-    const emissive = remapColor(matProps.emissive, settings);
-    el.setAttribute('material', `color: ${color}; metalness: ${matProps.metalness}; roughness: ${matProps.roughness}; emissive: ${emissive}; emissiveIntensity: ${matProps.emissiveIntensity}`);
-    el.setAttribute('shadow', 'cast: true; receive: false');
 
-    // Wireframe overlay for visual depth
-    if (typeId !== 'decoy') {
-      const wire = document.createElement(type.geometry === 'a-torus' ? 'a-torus' : type.geometry === 'a-torus-knot' ? 'a-torus-knot' : 'a-sphere');
-      const wr = type.radius * 1.05;
-      if (type.geometry === 'a-torus') {
-        wire.setAttribute('radius', String(type.radius * 1.05));
-        wire.setAttribute('radius-tubular', '0.065');
-        wire.setAttribute('segments-radial', '8');
-        wire.setAttribute('segments-tubular', '24');
-      } else if (type.geometry === 'a-torus-knot') {
-        wire.setAttribute('radius', String(type.radius * 0.65));
-        wire.setAttribute('radius-tubular', '0.05');
+    // TASK-321: Use 3D models when available, fallback to primitive geometry
+    const use3DModels = settings.targetModels !== false && targetModels.isReady();
+    if (use3DModels) {
+      // Hide A-Frame geometry (keep for raycaster), overlay Three.js model
+      el.setAttribute('material', 'visible: false; opacity: 0');
+      el.setAttribute('shadow', 'cast: false; receive: false');
+      const model = targetModels.getTargetModel(typeId, color, type.radius / 0.3);
+      if (model) {
+        // Wait for el.object3D to be ready, then attach
+        el.addEventListener('loaded', () => {
+          el.object3D.add(model);
+        }, { once: true });
+        el._has3DModel = true;
       } else {
-        wire.setAttribute('radius', String(wr));
+        // Fallback: model not found for this type
+        this._applyPrimitiveMaterial(el, type, typeId, color, settings);
       }
-      wire.setAttribute('material', `color: ${color}; wireframe: true; opacity: 0.15; transparent: true`);
-      el.appendChild(wire);
     } else {
-      // Decoy: wireframe-only overlay to look "glitchy"
-      const wire = document.createElement('a-sphere');
-      wire.setAttribute('radius', String(type.radius * 1.08));
-      wire.setAttribute('material', `color: #ff0000; wireframe: true; opacity: 0.2; transparent: true`);
-      el.appendChild(wire);
+      this._applyPrimitiveMaterial(el, type, typeId, color, settings);
     }
 
     const hp = this._bossMode ? type.hp + Math.floor(this._wave / 3) : type.hp;
@@ -853,6 +884,22 @@ class TargetSystem {
     // TASK-302: Reflex Rush — use decreasing lifetime
     if (this._reflexMode) {
       type = { ...type, lifetime: this._reflexLifetime };
+    }
+
+    // TASK-312: Debuff target — skull label + pulsing glow
+    if (typeId === 'debuff') {
+      const skull = document.createElement('a-text');
+      skull.setAttribute('value', '☠');
+      skull.setAttribute('align', 'center');
+      skull.setAttribute('color', '#ff4444');
+      skull.setAttribute('scale', '1.5 1.5 1.5');
+      skull.setAttribute('position', '0 0.25 0');
+      skull.setAttribute('look-at', '[camera]');
+      el.appendChild(skull);
+      el.setAttribute('animation__glow', {
+        property: 'material.emissiveIntensity', from: 0.4, to: 1.2,
+        dur: 400, loop: true, dir: 'alternate', easing: 'easeInOutSine',
+      });
     }
 
     // TASK-303: Blink target setup
@@ -967,6 +1014,17 @@ class TargetSystem {
     const isDecoy = el._targetType === 'decoy';
     const pos = hitPos || { x: 0, y: 2, z: -5 };
 
+    // TASK-312: Debuff target — activate debuff on hit
+    if (el._targetType === 'debuff') {
+      const debuff = tensionSystem.activateDebuff();
+      if (debuff) {
+        this._spawnDamageNumber(pos, 0, debuff.color, ` ${debuff.icon} ${debuff.label}`);
+        this._flashScreen('miss');
+      }
+      this._removeTarget(el, false);
+      return;
+    }
+
     // TASK-303: Blink target — if ghost state, penalize
     if (el._targetType === 'blink' && !el._blinkVisible) {
       scoreManager.add(-10);
@@ -1065,7 +1123,9 @@ class TargetSystem {
       }
 
       const zoneMul = this._getZoneMultiplier(pos);
-      const points = Math.round(basePoints * comboMultiplier * damage * powerUpMultiplier * rhythmMultiplier * zoneMul * reflexMultiplier);
+      // TASK-311: Surge double points
+      const surgeMul = tensionSystem.isSurgeActive ? 2 : 1;
+      const points = Math.round(basePoints * comboMultiplier * damage * powerUpMultiplier * rhythmMultiplier * zoneMul * reflexMultiplier * surgeMul);
       scoreManager.add(points);
       this._onComboChange?.(this._combo);
 
@@ -1367,6 +1427,11 @@ class TargetSystem {
   }
 
   _pick360Position() {
+    // TASK-313: Arena scale affects spawn distance
+    const arenaScale = tensionSystem.arenaScale;
+    const effectiveDistMax = SPAWN.distMax * arenaScale;
+    const effectiveDistMin = Math.min(SPAWN.distMin, effectiveDistMax - 1);
+
     // Pick angle with hemisphere bias: front 60%, sides 25%, behind 15%
     let angle;
     const r = Math.random();
@@ -1380,8 +1445,8 @@ class TargetSystem {
       angle = side * (110 + Math.random() * 70) * Math.PI / 180;
     }
 
-    // Distance: weighted toward mid-range
-    const dist = SPAWN.distMin + Math.random() * (SPAWN.distMax - SPAWN.distMin);
+    // Distance: weighted toward mid-range (TASK-313: arena-scaled)
+    const dist = effectiveDistMin + Math.random() * (effectiveDistMax - effectiveDistMin);
 
     // TASK-252: Height-zone spawn distribution
     // 20% floor (crouch), 15% overhead (reach up), 65% normal
@@ -1401,10 +1466,11 @@ class TargetSystem {
     const x = Math.sin(angle) * dist;
     const z = -Math.cos(angle) * dist;
 
+    const clampMax = 13 * arenaScale;
     return {
-      x: THREE.MathUtils.clamp(x, -13, 13),
+      x: THREE.MathUtils.clamp(x, -clampMax, clampMax),
       y,
-      z: THREE.MathUtils.clamp(z, -13, 13),
+      z: THREE.MathUtils.clamp(z, -clampMax, clampMax),
       _heightZone: heightZone,
     };
   }

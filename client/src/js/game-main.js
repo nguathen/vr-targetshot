@@ -22,6 +22,7 @@ import { getCurrentChallenge, getDaysRemaining } from './game/weekly-challenge.j
 import { checkNewUnlocks } from './game/unlock-tooltips.js';
 import { showAchievementToasts } from './game/achievement-toast.js';
 import { getRank } from './game/rank-system.js';
+import tensionSystem from './game/tension-system.js';
 
 const COUNTDOWN_FROM = 3;
 
@@ -33,6 +34,16 @@ let _originalSpawnInterval = 1500;
 let _frenzyActive = false;
 let _onReturnToMenu;
 let _initialized = false;
+
+// TASK-314: Accuracy tracking
+let _shotsFired = 0;
+let _shotsHit = 0;
+let _currentStreak = 0;
+let _pbBestScore = 0;
+
+// TASK-311: Surge
+let _surgeCountdown = 0;
+let _surgeHudTimer = null;
 
 // Expose systems to A-Frame components (non-module)
 window.__weaponSystem = weaponSystem;
@@ -53,6 +64,7 @@ export function startGame({ mode, weapon, theme, onReturnToMenu }) {
 
 // DOM refs (set once)
 let _hudScore, _hudTimer, _hudCombo, _hudLives, _hudWeapon, _hudLevel, _hudPowerup, _hudReaction, _hudColorMatch;
+let _hudAccuracy, _hudPbPace, _hudStreak, _hudSurge, _hudDebuff;
 let _scene, _btnQuitVr;
 
 function _initOnce() {
@@ -64,6 +76,11 @@ function _initOnce() {
   _hudLevel = document.getElementById('hud-level');
   _hudPowerup = document.getElementById('hud-powerup');
   _hudReaction = document.getElementById('hud-reaction');
+  _hudAccuracy = document.getElementById('hud-accuracy');
+  _hudPbPace = document.getElementById('hud-pb-pace');
+  _hudStreak = document.getElementById('hud-streak');
+  _hudSurge = document.getElementById('hud-surge');
+  _hudDebuff = document.getElementById('hud-debuff');
   _hudColorMatch = document.getElementById('hud-color-match');
   _scene = document.getElementById('scene');
   _btnQuitVr = document.getElementById('btn-quit-vr');
@@ -92,6 +109,10 @@ function _initOnce() {
   document.addEventListener('shot-fired', () => {
     if (gameManager.state === GameState.PLAYING) {
       scoreManager.recordShot();
+      // TASK-312: Block shot if weapon jammed
+      if (tensionSystem.isJammed) return;
+      _shotsFired++;
+      _updateAccuracyHud();
       document.dispatchEvent(new CustomEvent('camera-fov-punch'));
     }
   });
@@ -162,6 +183,9 @@ function _initOnce() {
   // TASK-300: Reaction time HUD
   document.addEventListener('reaction-time', (e) => {
     if (gameManager.state !== GameState.PLAYING || !_hudReaction) return;
+    // TASK-314: Track hits for accuracy
+    _shotsHit++;
+    _updateAccuracyHud();
     const ms = e.detail?.ms || 0;
     const avg = e.detail?.avg || 0;
     const color = ms < 200 ? '#44ff44' : ms < 400 ? '#ffff00' : '#ff4444';
@@ -181,6 +205,45 @@ function _initOnce() {
       property: 'scale', from: '0.5 0.5 0.5', to: '0.35 0.35 0.35',
       dur: 200, easing: 'easeOutBack',
     });
+  });
+
+  // TASK-311: Surge event HUD
+  document.addEventListener('surge-warning', () => {
+    if (!_hudSurge) return;
+    _hudSurge.setAttribute('value', '⚡ SURGE!');
+    _hudSurge.setAttribute('visible', 'true');
+    _hudSurge.setAttribute('animation__pop', {
+      property: 'scale', from: '0.6 0.6 0.6', to: '0.4 0.4 0.4',
+      dur: 200, easing: 'easeOutBack',
+    });
+    audioManager.playGo?.();
+  });
+
+  document.addEventListener('surge-start', () => {
+    if (!_hudSurge) return;
+    _surgeCountdown = 5;
+    _surgeHudTimer = setInterval(() => {
+      _surgeCountdown--;
+      if (_surgeCountdown > 0 && _hudSurge) {
+        _hudSurge.setAttribute('value', `⚡ SURGE: ${_surgeCountdown}s`);
+      }
+    }, 1000);
+  });
+
+  document.addEventListener('surge-end', () => {
+    if (_surgeHudTimer) { clearInterval(_surgeHudTimer); _surgeHudTimer = null; }
+    if (_hudSurge) {
+      _hudSurge.setAttribute('value', '');
+      _hudSurge.setAttribute('visible', 'false');
+    }
+  });
+
+  document.addEventListener('arena-reset', () => {
+    if (_hudCombo) {
+      _hudCombo.setAttribute('value', '🔓 ARENA RESET!');
+      _hudCombo.setAttribute('color', '#00ffff');
+      setTimeout(() => { if (_hudCombo) _hudCombo.setAttribute('value', ''); }, 2000);
+    }
   });
 
   // Slow-motion overlay handler
@@ -305,6 +368,43 @@ function _initRound(themeParam) {
 
   // TASK-262: Arena reactions
   arenaReactions.init(_scene);
+
+  // V19: Tension system (vignette, surge, debuffs, arena walls)
+  tensionSystem.start(_scene);
+
+  // TASK-311: Surge callbacks
+  tensionSystem.onSurgeStart = () => {
+    // Double spawn rate, halve lifetime during surge
+    targetSystem.setSpawnRate(Math.round(_originalSpawnInterval * 0.5));
+  };
+  tensionSystem.onSurgeEnd = () => {
+    if (!_frenzyActive) {
+      targetSystem.setSpawnRate(_originalSpawnInterval);
+    }
+  };
+
+  // TASK-312: Debuff HUD callback
+  tensionSystem.onDebuffChange = (debuff) => {
+    if (!_hudDebuff) return;
+    if (debuff) {
+      _hudDebuff.setAttribute('value', `${debuff.icon} ${debuff.label}`);
+      _hudDebuff.setAttribute('color', debuff.color);
+      _hudDebuff.setAttribute('visible', 'true');
+    } else {
+      _hudDebuff.setAttribute('value', '');
+      _hudDebuff.setAttribute('visible', 'false');
+    }
+  };
+
+  // TASK-314: Reset accuracy tracking
+  _shotsFired = 0;
+  _shotsHit = 0;
+  _currentStreak = 0;
+
+  // PB pace comparison
+  _pbBestScore = authManager.profile?.highScores?.[mode.id] || 0;
+  _gameStartTime = Date.now();
+
   _applyGameSettings(settings);
   _updateControllerLasers();
 
@@ -367,9 +467,50 @@ function _initRound(themeParam) {
       property: 'scale', from: '0.42 0.42 0.42', to: '0.35 0.35 0.35',
       dur: 150, easing: 'easeOutQuad',
     });
+
+    // TASK-314: PB Pace indicator
+    if (_hudPbPace && _pbBestScore > 0 && timeLeft !== Infinity) {
+      const elapsed = Date.now() - _gameStartTime;
+      const duration = gameModeManager.current.duration * 1000;
+      const progress = elapsed / duration;
+      const expectedAtThisPoint = Math.round(_pbBestScore * progress);
+      const diff = score - expectedAtThisPoint;
+      if (diff >= 0) {
+        _hudPbPace.setAttribute('value', `▲ +${diff}`);
+        _hudPbPace.setAttribute('color', '#44ff44');
+      } else {
+        _hudPbPace.setAttribute('value', `▼ ${diff}`);
+        _hudPbPace.setAttribute('color', '#ff4444');
+      }
+    }
   });
 
   targetSystem.onComboChange = (combo) => {
+    // TASK-310: Update tension vignette for combo
+    tensionSystem.updateCombo(combo);
+
+    // TASK-314: Streak counter
+    if (combo > 0) {
+      _currentStreak = combo;
+      if (_hudStreak) {
+        _hudStreak.setAttribute('value', `🔥 ${combo}`);
+      }
+    } else {
+      _currentStreak = 0;
+      if (_hudStreak) _hudStreak.setAttribute('value', '');
+    }
+
+    // TASK-311: Check surge on wave transitions (combo resets = wave change proxy)
+    if (combo > 0 && targetSystem.targetsHit > 0 && targetSystem.targetsHit % 5 === 0) {
+      const wave = Math.floor(targetSystem.targetsHit / 5);
+      tensionSystem.checkSurge(wave);
+      // TASK-313: Arena wall shrink
+      const arenaScale = tensionSystem.updateArenaForWave(wave);
+      if (arenaScale < 1.0 && targetSystem._pick360Position) {
+        // Arena scale is handled via SPAWN constants adjustment in target system
+      }
+    }
+
     if (combo >= 2) {
       _hudCombo.setAttribute('value', `x${combo} COMBO!`);
       // Color escalation
@@ -439,6 +580,8 @@ function _initRound(themeParam) {
       audioManager.playLifeLost();
       hapticManager.damageTaken();
       _updateLivesDisplay();
+      // TASK-310: Update tension for lives change
+      tensionSystem.updateDanger(gameModeManager.lives, currentMode.lives, timeLeft, currentMode.duration);
       // Shake lives display
       if (_hudLives) {
         _hudLives.setAttribute('animation__shake', {
@@ -525,8 +668,29 @@ const THEME_PARTICLES = {
 
 function _spawnAmbientParticles(sceneEl) {
   const palette = THEME_PARTICLES[_selectedTheme] || THEME_PARTICLES.cyber;
+  const settings = typeof getSettings === 'function' ? getSettings() : {};
 
-  // --- Dust motes (40): slow, warm, subtle ---
+  // TASK-320: Use GPU particles when available
+  if (settings.particles !== 'off' && AFRAME.components['gpu-particles']) {
+    const countMul = settings.particles === 'low' ? 0.5 : 1;
+
+    // Dust motes
+    const dust = document.createElement('a-entity');
+    dust.setAttribute('class', 'ambient-particle');
+    dust.setAttribute('gpu-particles', `preset: dust; count: ${Math.round(1200 * countMul)}; color: ${palette.dust}; area: 28; height: 5; opacity: 0.15`);
+    sceneEl.appendChild(dust);
+
+    // Energy sparks
+    const sparks = document.createElement('a-entity');
+    sparks.setAttribute('class', 'ambient-particle');
+    sparks.setAttribute('gpu-particles', `preset: ambient; count: ${Math.round(800 * countMul)}; color: ${palette.sparks}; area: 24; height: 4; opacity: 0.4; size: 0.008`);
+    sceneEl.appendChild(sparks);
+
+    return;
+  }
+
+  // Legacy fallback: entity-based ambient particles
+  // --- Dust motes (40) ---
   for (let i = 0; i < 40; i++) {
     const p = document.createElement('a-sphere');
     const x = (Math.random() - 0.5) * 28;
@@ -545,7 +709,7 @@ function _spawnAmbientParticles(sceneEl) {
     sceneEl.appendChild(p);
   }
 
-  // --- Energy sparks (20): small, fast, bright emissive ---
+  // --- Energy sparks (20) ---
   for (let i = 0; i < 20; i++) {
     const p = document.createElement('a-sphere');
     const x = (Math.random() - 0.5) * 24;
@@ -555,14 +719,12 @@ function _spawnAmbientParticles(sceneEl) {
     p.setAttribute('radius', String(0.006 + Math.random() * 0.008));
     p.setAttribute('material', `shader: flat; color: ${palette.sparks}; opacity: ${0.3 + Math.random() * 0.4}`);
     p.setAttribute('position', `${x} ${y} ${z}`);
-    // Fast random drift
     p.setAttribute('animation__drift', {
       property: 'position',
       to: `${x + (Math.random() - 0.5) * 5} ${y + (Math.random() - 0.5) * 3} ${z + (Math.random() - 0.5) * 5}`,
       dur: 2000 + Math.random() * 2000,
       easing: 'easeInOutSine', loop: true, dir: 'alternate',
     });
-    // Twinkle
     p.setAttribute('animation__twinkle', {
       property: 'material.opacity', from: 0.1, to: 0.6 + Math.random() * 0.3,
       dur: 600 + Math.random() * 800,
@@ -571,7 +733,7 @@ function _spawnAmbientParticles(sceneEl) {
     sceneEl.appendChild(p);
   }
 
-  // --- Floating debris (10): small geometric, slow rotation ---
+  // --- Floating debris (10) ---
   const debrisGeoms = ['a-icosahedron', 'a-octahedron', 'a-dodecahedron'];
   for (let i = 0; i < 10; i++) {
     const geom = debrisGeoms[Math.floor(Math.random() * debrisGeoms.length)];
@@ -750,6 +912,9 @@ function startRound() {
       timeLeft--;
       _hudTimer.setAttribute('value', String(timeLeft));
 
+      // TASK-310: Update tension for time pressure
+      tensionSystem.updateDanger(gameModeManager.lives, gameModeManager.current.lives, timeLeft, gameModeManager.current.duration);
+
       if (timeLeft <= 3 && !_frenzyActive) {
         // TASK-291: Extreme frenzy — triple spawn rate
         _frenzyActive = true;
@@ -803,9 +968,11 @@ async function endGame() {
   if (_btnQuitVr) _btnQuitVr.setAttribute('visible', 'false');
   gameManager.changeState(GameState.GAME_OVER);
   targetSystem.stop();
+  tensionSystem.stop();
   powerUpManager.reset();
   musicManager.stopMusic();
   weatherSystem.stop();
+  if (_surgeHudTimer) { clearInterval(_surgeHudTimer); _surgeHudTimer = null; }
   document.dispatchEvent(new CustomEvent('game-over-reactions'));
   arenaReactions.stop();
   audioManager.playGameOver();
@@ -998,7 +1165,7 @@ function _showPostGameSummary(result, summary, isNewHigh, xpEarned, challengeRes
   hudGameover.setAttribute('visible', 'true');
 
   // Hide HUD elements during game over display
-  ['hud-score', 'hud-timer', 'hud-combo', 'hud-lives', 'hud-weapon', 'hud-level', 'hud-powerup', 'hud-boss'].forEach(id => {
+  ['hud-score', 'hud-timer', 'hud-combo', 'hud-lives', 'hud-weapon', 'hud-level', 'hud-powerup', 'hud-boss', 'hud-accuracy', 'hud-pb-pace', 'hud-streak', 'hud-surge', 'hud-debuff', 'hud-reaction', 'hud-color-match'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.setAttribute('visible', 'false');
   });
@@ -1094,6 +1261,16 @@ function _updateComboVignette(combo) {
   } else if (combo >= 3) {
     vignette.classList.add('active', 'combo-low');
   }
+}
+
+// TASK-314: Live accuracy HUD
+function _updateAccuracyHud() {
+  if (!_hudAccuracy) return;
+  _hudAccuracy.setAttribute('visible', 'true');
+  const acc = _shotsFired > 0 ? Math.round((_shotsHit / _shotsFired) * 100) : 100;
+  _hudAccuracy.setAttribute('value', `ACC: ${acc}%`);
+  const color = acc > 90 ? '#44ff44' : acc > 70 ? '#ffff00' : '#ff4444';
+  _hudAccuracy.setAttribute('color', color);
 }
 
 function _updateBarrierComboGlow(combo) {

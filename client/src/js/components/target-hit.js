@@ -101,15 +101,26 @@ AFRAME.registerComponent('target-hit', {
       easing: 'easeOutQuad',
     });
 
-    // === 150ms: Shrink to nothing ===
-    setTimeout(() => {
-      this.el.setAttribute('animation__shrink', {
-        property: 'scale',
-        to: '0 0 0',
-        dur: 180,
-        easing: 'easeInBack',
-      });
-    }, 80);
+    // === 150ms: Dissolve or shrink ===
+    const settings = typeof getSettings === 'function' ? getSettings() : {};
+    const useDissolve = settings.dissolveEffect !== false;
+    if (useDissolve && this.el.components && !this.el.components['dissolve-effect']) {
+      // TASK-322: Apply dissolve shader instead of instant shrink
+      try {
+        this.el.setAttribute('dissolve-effect', `color: ${color}; duration: 400`);
+      } catch (_e) {
+        // Fallback to shrink if dissolve fails
+        this.el.setAttribute('animation__shrink', {
+          property: 'scale', to: '0 0 0', dur: 180, easing: 'easeInBack',
+        });
+      }
+    } else {
+      setTimeout(() => {
+        this.el.setAttribute('animation__shrink', {
+          property: 'scale', to: '0 0 0', dur: 180, easing: 'easeInBack',
+        });
+      }, 80);
+    }
 
     // === Second shockwave (delayed, larger, fainter) ===
     setTimeout(() => {
@@ -279,12 +290,18 @@ AFRAME.registerComponent('target-hit', {
     const type = this.data.targetType;
     const counts = { standard: 15, heavy: 25, bonus: 20, decoy: 8, speed: 18, powerup: 18 };
     const count = counts[type] || 15;
-
     const burstColor = type === 'bonus' ? '#ffd700' : type === 'decoy' ? '#661111' : color;
 
-    const burst = document.createElement('a-entity');
-    burst.setAttribute('position', `${pos.x} ${pos.y} ${pos.z}`);
-    burst.setAttribute('particle-burst', `color: ${burstColor}; count: ${count}; size: 0.04; speed: 4; lifetime: 500`);
-    this.el.sceneEl.appendChild(burst);
+    // TASK-320: Use GPU particles when available, fallback to entity burst
+    if (window.__spawnGPUBurst) {
+      window.__spawnGPUBurst(this.el.sceneEl, pos, {
+        count, color: burstColor, size: 0.04, speed: 4, lifetime: 500,
+      });
+    } else {
+      const burst = document.createElement('a-entity');
+      burst.setAttribute('position', `${pos.x} ${pos.y} ${pos.z}`);
+      burst.setAttribute('particle-burst', `color: ${burstColor}; count: ${count}; size: 0.04; speed: 4; lifetime: 500`);
+      this.el.sceneEl.appendChild(burst);
+    }
   },
 });

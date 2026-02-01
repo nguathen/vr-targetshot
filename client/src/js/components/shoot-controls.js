@@ -280,6 +280,14 @@ AFRAME.registerComponent('shoot-controls', {
     this.el.object3D.getWorldPosition(pos);
 
     const color = weapon?.laserColor || '#ffffff';
+
+    // TASK-320: GPU particle muzzle flash
+    if (window.__spawnGPUBurst) {
+      window.__spawnGPUBurst(scene, pos, {
+        count: 5, color, size: 0.03, speed: 3, lifetime: 100,
+      });
+    }
+
     const flashSize = weapon?.id === 'shotgun' ? 0.1 : weapon?.id === 'sniper' ? 0.06 : 0.07;
     const flash = document.createElement('a-sphere');
     flash.setAttribute('position', `${pos.x} ${pos.y} ${pos.z}`);

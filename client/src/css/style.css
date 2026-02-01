@@ -1150,3 +1150,64 @@ body {
 .teleport-vignette.active {
   opacity: 1;
 }
+
+/* V19 TASK-310: Tension Vignette */
+.tension-vignette {
+  position: fixed;
+  top: 0; left: 0; width: 100%; height: 100%;
+  pointer-events: none;
+  z-index: 45;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.tension-vignette.tension-active {
+  opacity: 1;
+  background: radial-gradient(ellipse at center, transparent 50%, rgba(255, 0, 0, 0.3) 100%);
+  animation: tension-pulse 800ms ease-in-out infinite;
+}
+.tension-vignette.tension-critical {
+  animation: tension-pulse 500ms ease-in-out infinite;
+  background: radial-gradient(ellipse at center, transparent 40%, rgba(255, 0, 0, 0.45) 100%);
+}
+.tension-vignette.tension-golden {
+  background: radial-gradient(ellipse at center, transparent 55%, rgba(255, 215, 0, 0.25) 100%) !important;
+  animation: tension-pulse 600ms ease-in-out infinite !important;
+}
+.tension-vignette.tension-white {
+  background: radial-gradient(ellipse at center, transparent 50%, rgba(255, 255, 255, 0.2) 100%) !important;
+  animation: tension-flash 150ms ease-out !important;
+}
+.tension-vignette.surge-active {
+  background: radial-gradient(ellipse at center, transparent 30%, rgba(255, 200, 0, 0.35) 100%) !important;
+  animation: surge-pulse 300ms ease-in-out infinite !important;
+}
+@keyframes tension-pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+@keyframes tension-flash {
+  0% { opacity: 1; }
+  100% { opacity: 0.4; }
+}
+@keyframes surge-pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+/* V19 TASK-312: Debuff fog overlay */
+.debuff-fog-overlay {
+  position: fixed;
+  top: 0; left: 0; width: 100%; height: 100%;
+  pointer-events: none;
+  z-index: 44;
+  background: rgba(100, 100, 120, 0);
+  transition: background 0.5s;
+}
+.debuff-fog-overlay.debuff-fog-active {
+  background: rgba(100, 100, 120, 0.5);
+  animation: fog-clear 3s ease-in forwards;
+}
+@keyframes fog-clear {
+  0% { background: rgba(100, 100, 120, 0.5); }
+  100% { background: rgba(100, 100, 120, 0); }
+}

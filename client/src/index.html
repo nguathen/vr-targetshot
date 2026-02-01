@@ -72,6 +72,9 @@
   <script src="./js/components/teleport-pad.js"></script>
   <script src="./js/components/weapon-model.js"></script>
   <script src="./js/components/combo-popup.js"></script>
+  <script src="./js/components/gpu-particles.js"></script>
+  <script src="./js/components/dissolve-effect.js"></script>
+  <script src="./js/components/hand-shoot.js"></script>
 
   <a-scene id="scene" vr-mode-ui="enterVRButton: #enter-vr-btn" shadow="type: pcfsoft; autoUpdate: true"
            bloom-effect="strength: 0.6; radius: 0.4; threshold: 0.7" combo-popup-listener>
@@ -108,6 +111,21 @@
         <!-- TASK-301: Color-match indicator -->
         <a-text id="hud-color-match" value="" position="0 -0.18 -1"
                 scale="0.35 0.35 0.35" color="#ffffff" font="mozillavr" align="center" visible="false"></a-text>
+        <!-- TASK-314: Accuracy HUD -->
+        <a-text id="hud-accuracy" value="" position="-0.45 0.14 -1"
+                scale="0.2 0.2 0.2" color="#00ff88" font="mozillavr" align="left" visible="false"></a-text>
+        <!-- TASK-314: PB Pace indicator -->
+        <a-text id="hud-pb-pace" value="" position="0.45 0.14 -1"
+                scale="0.2 0.2 0.2" color="#00ff88" font="mozillavr" align="right" visible="false"></a-text>
+        <!-- TASK-314: Streak counter -->
+        <a-text id="hud-streak" value="" position="0 0.28 -1"
+                scale="0.22 0.22 0.22" color="#ff8800" font="mozillavr" align="center" visible="false"></a-text>
+        <!-- TASK-311: Surge HUD -->
+        <a-text id="hud-surge" value="" position="0 -0.08 -1"
+                scale="0.4 0.4 0.4" color="#ffdd00" font="mozillavr" align="center" visible="false"></a-text>
+        <!-- TASK-312: Debuff HUD -->
+        <a-text id="hud-debuff" value="" position="0 -0.28 -1"
+                scale="0.25 0.25 0.25" color="#ff4444" font="mozillavr" align="center" visible="false"></a-text>
         <a-cursor id="game-cursor" color="#00ff88" fuse="false" raycaster="objects: .target; far: 100" visible="false"></a-cursor>
 
         <!-- Boss Health Bar HUD -->
@@ -160,6 +178,17 @@
                 raycaster="objects: .clickable; far: 20; lineColor: #ff4444; lineOpacity: 0.7"
                 cursor="fuse: false; rayOrigin: entity"
                 weapon-model>
+      </a-entity>
+
+      <!-- Hand tracking (TASK-323): auto-enabled when controllers not detected -->
+      <a-entity id="left-hand-tracking"
+                hand-tracking-controls="hand: left; modelStyle: mesh; modelColor: #44aaff"
+                visible="false">
+      </a-entity>
+      <a-entity id="right-hand-tracking"
+                hand-tracking-controls="hand: right; modelStyle: mesh; modelColor: #ff4444"
+                hand-shoot
+                visible="false">
       </a-entity>
     </a-entity>
 
