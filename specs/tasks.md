@@ -12,7 +12,7 @@
 |--------|-------|
 | In Progress | 0 |
 | Pending | 0 |
-| Completed | 114 |
+| Completed | 120 |
 
 > V1–V13 — all completed (68 tasks).
 > **V14 Content & QoL Upgrade (TASK-270~277)** — completed.
@@ -24,6 +24,143 @@
 > **V20 Visual & Interaction Upgrade (TASK-320~323)** — completed.
 > **V21 Audio & Visual Polish (TASK-330~333)** — completed.
 > **V22 3D Graphics Upgrade (TASK-340~342)** — completed.
+> **V23 Tension & Thrill (TASK-350~355)** — completed.
+
+---
+
+## V23 — Tension & Thrill Upgrade
+
+> **Goal:** Tăng cảm giác gây cấn với clutch moments, risk/reward mechanics, environmental tension. Từ "fun shooter" → "heart-pounding experience".
+
+## TASK-350: Last Stand Mode
+**Priority:** High
+**Status:** Completed (2026-02-01)
+**Assigned:** /dev
+
+### Description
+Khi HP=1, kích hoạt Last Stand: desaturate screen, heartbeat nhanh, camera micro-shake. Bắn trúng 5 liên tiếp → hồi 1 HP, color restore + "SURVIVED!" flash.
+
+### Acceptance Criteria
+- [ ] Detect HP=1 trong `game-main.js` (listen `gameModeManager.loseLife()` result)
+- [ ] **Visual**: Desaturate scene via bloom-effect uniform `uSaturation` → 0.2 (near grayscale)
+- [ ] **Audio**: Heartbeat interval giảm từ 500ms → 350ms (faster than current critical)
+- [ ] **Camera**: Subtle micro-shake (intensity 0.005, continuous, not per-event)
+- [ ] **Recovery**: Track consecutive hits during Last Stand. 5 consecutive hits = +1 HP
+- [ ] **Recovery FX**: Flash green vignette, "SURVIVED!" HUD text (2s), restore saturation over 1s
+- [ ] **HUD**: Hiện "LAST STAND" text nhấp nháy đỏ khi active
+- [ ] Reset Last Stand state on HP recovery hoặc game over
+- [ ] Chỉ áp dụng cho modes có lives (survival, bossRush, reflexRush). Ignore cho timeAttack/zen
+
+---
+
+## TASK-351: Bomb Targets
+**Priority:** High
+**Status:** Completed (2026-02-01)
+**Assigned:** /dev
+
+### Description
+Target loại mới "bomb" — có countdown 3s, không bắn kịp = nổ mất 1 HP. Bắn nhầm decoy gần bomb cũng trigger nổ. Spawn từ wave 3+.
+
+### Acceptance Criteria
+- [ ] Thêm `bomb` vào `TARGET_TYPES`: weight 0 (controlled spawn), points 40, radius 0.35, hp 1, lifetime 3000ms
+- [ ] **Visual**: Đỏ sáng, pulsing scale animation (1.0→1.2, 300ms), countdown number hiện trên target (3→2→1)
+- [ ] **Countdown**: 3s timer, mỗi giây emit beep sound (ascending pitch), flash đỏ hơn
+- [ ] **Explosion on miss**: Khi lifetime hết → `onPlayerDamage('bomb')`, explosion particles (30 particles, red/orange), camera shake (intensity 0.04, 300ms), explosion SFX
+- [ ] **Chain explosion**: Nếu decoy bị bắn trong radius 2m của bomb → trigger bomb explosion sớm
+- [ ] **Defuse reward**: Bắn trúng bomb = +40 points, satisfying "defuse" SFX (relief tone), green particles
+- [ ] **Spawn logic**: `_pickTargetType()` spawn bomb mỗi 8-12 targets (random), chỉ từ wave 3+
+- [ ] **Max 1 bomb** active cùng lúc (tránh overwhelming)
+- [ ] Thêm `playBombTick()`, `playBombExplode()`, `playBombDefuse()` vào audio-manager.js
+
+---
+
+## TASK-352: Chain Lightning Combo
+**Priority:** Medium
+**Status:** Completed (2026-02-01)
+**Assigned:** /dev
+
+### Description
+Combo ≥15: spawn rate tăng 1.5x. Combo ≥25: spawn "chain" targets (bắn theo thứ tự 1→2→3). Sai thứ tự = reset combo. High risk/high reward.
+
+### Acceptance Criteria
+- [ ] **Combo 15+ acceleration**: Trong `onComboChange`, nếu combo ≥ 15 → `targetSystem.setSpawnRate(originalRate * 0.67)` (1.5x faster). Reset khi combo break
+- [ ] **Chain targets** (combo ≥ 25): Spawn 3 targets đánh số 1, 2, 3 cùng lúc
+- [ ] Chain target visual: Số hiện rõ trên target (a-text child), connected bằng thin laser line giữa 1→2→3
+- [ ] **Order enforcement**: Bắn target 2 trước target 1 = combo reset + "CHAIN BREAK!" text
+- [ ] Bắn đúng thứ tự: mỗi target +50 points, complete chain = bonus +100
+- [ ] **Chain spawn**: 1 chain set mỗi 15s khi combo ≥ 25 (tránh spam)
+- [ ] Chain targets có lifetime 5s (longer than normal), vị trí spread rộng (force player look around)
+- [ ] **Visual feedback**: Target đang "next" glow sáng hơn, các target khác dim
+- [ ] Reset chain state khi combo drop < 25
+
+---
+
+## TASK-353: Darkness Wave
+**Priority:** Medium
+**Status:** Completed (2026-02-01)
+**Assigned:** /dev
+
+### Description
+Mỗi 60s, arena tối dần (2s), chỉ còn target emissive glow + weapon laser. 10s duration, targets nhanh hơn.
+
+### Acceptance Criteria
+- [ ] **Trigger**: Mỗi 60s trong game (timer hoặc elapsed time), dispatch `darkness-wave` event
+- [ ] **Fade to dark** (2s): Giảm tất cả light intensity về 10% gốc, ambient light → near zero
+- [ ] **Target glow**: Targets giữ emissive material (already glowing), tăng emissiveIntensity 2x trong darkness
+- [ ] **Weapon laser**: Giữ visible, tăng opacity (guidance in dark)
+- [ ] **Speed boost**: Targets di chuyển 1.5x nhanh hơn trong darkness
+- [ ] **Duration**: 10s, sau đó lights fade back (2s restore)
+- [ ] **Warning**: 3s trước darkness: "DARKNESS INCOMING..." HUD text + low rumble SFX
+- [ ] **Bonus**: Mỗi kill trong darkness = 2x points
+- [ ] **Visual**: Chỉ target glow + muzzle flash + laser visible. Arena gần như đen hoàn toàn
+- [ ] Thêm `playDarknessWarn()`, `playDarknessStart()`, `playDarknessEnd()` vào audio-manager
+- [ ] **Skip**: Không trigger darkness trong boss fight hoặc khi Last Stand active
+- [ ] Settings: `settings.darknessWave` toggle (on/off)
+
+---
+
+## TASK-354: Rival Ghost
+**Priority:** Low
+**Status:** Completed (2026-02-01)
+**Assigned:** /dev
+
+### Description
+Ghost replay của high-score run. Hiện ghost indicator (ahead/behind PB). Behind = tense visual.
+
+### Acceptance Criteria
+- [ ] **Record**: Mỗi game, lưu `ghostData[]` = array of `{time, score}` mỗi 1s vào localStorage
+- [ ] **Replay**: Game mới load `ghostData` từ best run, compare real-time score vs ghost score
+- [ ] **HUD indicator**: Nhỏ gọn ở góc: "▲ +120 AHEAD" (green) hoặc "▼ -50 BEHIND" (red)
+- [ ] **Behind tension**: Khi behind PB → nhẹ red tint vignette (0.1 intensity), music intensity +1
+- [ ] **Ahead reward**: Khi ahead → subtle gold shimmer on HUD border
+- [ ] **New PB flash**: Khi vượt qua PB score → "NEW RECORD PACE!" flash gold (3s)
+- [ ] Chỉ hiện ghost nếu có previous run data (first game = no ghost)
+- [ ] **Data format**: `localStorage.setItem('ghostRun_' + mode, JSON.stringify(ghostData))`
+- [ ] Settings: `settings.rivalGhost` toggle (on/off)
+
+---
+
+## TASK-355: Sudden Death Overtime
+**Priority:** High
+**Status:** Completed (2026-02-01)
+**Assigned:** /dev
+
+### Description
+Khi timer=0 trong timeAttack/reflexRush, nếu score ≥ 80% high score → "OVERTIME!" 10s bonus. Hit=+1s, Miss=-2s.
+
+### Acceptance Criteria
+- [ ] **Trigger check** trong `endGame()`: Nếu timed mode + score ≥ 80% highScore → enter overtime thay vì end
+- [ ] **Overtime state**: `_overtimeActive = true`, `_overtimeTime = 10`
+- [ ] **Timer**: Riêng biệt, hiện đỏ nhấp nháy, format "OT: 8.5s" (1 decimal)
+- [ ] **Hit bonus**: Mỗi target hit = +1s (cap tại 15s total overtime)
+- [ ] **Miss penalty**: Mỗi miss/expire = -2s
+- [ ] **End**: Overtime kết thúc khi `_overtimeTime ≤ 0` → actual endGame()
+- [ ] **Visual**: "⚡ OVERTIME!" banner lớn (fade after 2s), màn hình red pulse border, spawn rate 2x
+- [ ] **Audio**: Dramatic start sound (horn/siren), ticking clock SFX mỗi giây, heartbeat 300ms
+- [ ] **Scoring**: Points trong overtime vẫn tính normal (no bonus, no penalty)
+- [ ] **HUD**: Thay timer bằng overtime timer, flash animation
+- [ ] Chỉ trigger 1 lần per game (không lặp lại overtime)
+- [ ] Thêm `playOvertimeStart()`, `playOvertimeTick()`, `playOvertimeEnd()` vào audio-manager
 
 ---
 
@@ -127,7 +264,7 @@ Nâng cấp muzzle flash khi bắn: GPU particle burst từ weapon tip + dynamic
 
 ## TASK-330: Dynamic Music System
 **Priority:** High
-**Status:** Pending
+**Status:** Completed (2026-02-01)
 **Assigned:** /dev
 
 ### Description
@@ -163,7 +300,7 @@ Procedural adaptive music system bằng Web Audio API. Không dùng audio files 
 
 ## TASK-331: Audio Polish — Reverb, UI Sounds, Dissolve SFX
 **Priority:** Medium
-**Status:** Pending
+**Status:** Completed (2026-02-01)
 **Assigned:** /dev
 
 ### Description
@@ -195,7 +332,7 @@ Thêm ConvolverNode reverb cho spatial depth, UI interaction sounds, và các SF
 
 ## TASK-332: Vignette & Damage Flash Post-Processing
 **Priority:** Medium
-**Status:** Pending
+**Status:** Completed (2026-02-01)
 **Assigned:** /dev
 
 ### Description
@@ -227,7 +364,7 @@ Mở rộng `bloom-effect.js` pipeline: thêm vignette (edge darkening), damage 
 
 ## TASK-333: Color Grading & Tone Mapping
 **Priority:** Medium
-**Status:** Pending
+**Status:** Completed (2026-02-01)
 **Assigned:** /dev
 
 ### Description
@@ -376,6 +513,12 @@ Thêm hand tracking support cho Quest 2/3. Sử dụng A-Frame `hand-tracking-co
 
 | Task | Title | Completed |
 |------|-------|-----------|
+| TASK-350 | Last Stand Mode | 2026-02-01 |
+| TASK-351 | Bomb Targets | 2026-02-01 |
+| TASK-352 | Chain Lightning Combo | 2026-02-01 |
+| TASK-353 | Darkness Wave | 2026-02-01 |
+| TASK-354 | Rival Ghost | 2026-02-01 |
+| TASK-355 | Sudden Death Overtime | 2026-02-01 |
 | TASK-340 | Environment Map Reflections | 2026-02-01 |
 | TASK-341 | Floor Detail — Procedural Normal Map | 2026-02-01 |
 | TASK-342 | Enhanced Muzzle Flash | 2026-02-01 |

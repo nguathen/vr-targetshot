@@ -27,6 +27,7 @@ const TARGET_MATERIALS = {
   blink:    { metalness: 0.8, roughness: 0.2, emissive: '#ff00ff', emissiveIntensity: 0.8 },
   peripheral: { metalness: 0.7, roughness: 0.2, emissive: '#ff8800', emissiveIntensity: 0.9 },
   debuff:     { metalness: 0.5, roughness: 0.4, emissive: '#880044', emissiveIntensity: 0.7 },
+  bomb:       { metalness: 0.8, roughness: 0.2, emissive: '#ff2200', emissiveIntensity: 1.0 },
 };
 
 const TARGET_TYPES = {
@@ -39,6 +40,7 @@ const TARGET_TYPES = {
   blink:     { weight: 0,  points: 35,  radius: 0.28, geometry: 'a-icosahedron', color: '#ff00ff', hp: 1, speed: 0, lifetime: null, coins: 0 },
   peripheral:{ weight: 0,  points: 40,  radius: 0.3,  geometry: 'a-icosahedron', color: '#ff8800', hp: 1, speed: 0, lifetime: 2500, coins: 0 },
   debuff:    { weight: 0,  points: 0,   radius: 0.2,  geometry: 'a-sphere', color: '#880044', hp: 1, speed: 0, lifetime: 4000, coins: 0 },
+  bomb:      { weight: 0,  points: 40,  radius: 0.35, geometry: 'a-icosahedron', color: '#ff2200', hp: 1, speed: 0, lifetime: 3000, coins: 0 },
 };
 
 // TASK-301: Color-match colors
@@ -149,6 +151,17 @@ class TargetSystem {
 
     // TASK-304: Peripheral vision tracker
     this._peripheralHits = 0;
+
+    // TASK-351: Bomb targets
+    this._bombActive = false;
+    this._bombSpawnCounter = 0;
+    this._bombSpawnThreshold = 8 + Math.floor(Math.random() * 5); // 8-12
+
+    // TASK-352: Chain targets
+    this._chainTargets = [];
+    this._chainNextIndex = 0;
+    this._chainActive = false;
+    this._lastChainTime = 0;
   }
 
   set onComboChange(fn) { this._onComboChange = fn; }
@@ -331,6 +344,14 @@ class TargetSystem {
 
     // Cleanup blink tick (TASK-303)
     if (this._blinkTick) { clearInterval(this._blinkTick); this._blinkTick = null; }
+
+    // TASK-351: Reset bomb state
+    this._bombActive = false;
+    this._bombSpawnCounter = 0;
+    // TASK-352: Reset chain state
+    this._chainTargets = [];
+    this._chainNextIndex = 0;
+    this._chainActive = false;
 
     this._clearAll();
   }
@@ -578,6 +599,16 @@ class TargetSystem {
 
     // Weekly challenge: force a specific target type
     if (this._challengeMods.forceTargetType) return this._challengeMods.forceTargetType;
+
+    // TASK-351: Bomb targets — every 8-12 targets from wave 3+, max 1 active
+    if (this._wave >= 3 && !this._bombActive) {
+      this._bombSpawnCounter++;
+      if (this._bombSpawnCounter >= this._bombSpawnThreshold) {
+        this._bombSpawnCounter = 0;
+        this._bombSpawnThreshold = 8 + Math.floor(Math.random() * 5);
+        return 'bomb';
+      }
+    }
 
     // Build weighted list with challenge modifiers + wave-unlocked types
     let total = 0;
@@ -902,6 +933,40 @@ class TargetSystem {
       });
     }
 
+    // TASK-351: Bomb target setup
+    if (typeId === 'bomb') {
+      this._bombActive = true;
+      el._bombCountdown = 3;
+      // Pulsing scale
+      el.setAttribute('animation__bombpulse', {
+        property: 'scale', from: '1 1 1', to: '1.2 1.2 1.2',
+        dur: 300, loop: true, dir: 'alternate', easing: 'easeInOutSine',
+      });
+      el.setAttribute('animation__glow', {
+        property: 'material.emissiveIntensity', from: 0.6, to: 1.5,
+        dur: 300, loop: true, dir: 'alternate', easing: 'easeInOutSine',
+      });
+      // Countdown label
+      const label = document.createElement('a-text');
+      label.setAttribute('value', '3');
+      label.setAttribute('align', 'center');
+      label.setAttribute('color', '#ffffff');
+      label.setAttribute('scale', '2 2 2');
+      label.setAttribute('position', '0 0.35 0');
+      label.setAttribute('look-at', '[camera]');
+      el.appendChild(label);
+      el._bombLabel = label;
+      audioManager.playBombTick(0);
+      // Tick countdown
+      el._bombTickTimer = setInterval(() => {
+        el._bombCountdown--;
+        if (el._bombLabel) el._bombLabel.setAttribute('value', String(Math.max(0, el._bombCountdown)));
+        if (el._bombCountdown > 0) {
+          audioManager.playBombTick(3 - el._bombCountdown);
+        }
+      }, 1000);
+    }
+
     // TASK-303: Blink target setup
     if (typeId === 'blink') {
       el._blinkVisible = true;
@@ -1050,6 +1115,46 @@ class TargetSystem {
       return;
     }
 
+    // TASK-351: Bomb defuse — rewarding hit
+    if (el._targetType === 'bomb') {
+      this._bombActive = false;
+      if (el._bombTickTimer) clearInterval(el._bombTickTimer);
+      scoreManager.add(40);
+      this._combo++;
+      this._targetsHit++;
+      this._wave++;
+      if (this._combo > this._bestCombo) this._bestCombo = this._combo;
+      if (this._comboTimer) clearTimeout(this._comboTimer);
+      this._comboTimer = setTimeout(() => { this._combo = 0; this._onComboChange?.(0); }, 2000);
+      this._onComboChange?.(this._combo);
+      audioManager.playBombDefuse();
+      window.__hapticManager?.hit();
+      this._spawnDamageNumber(pos, 40, '#44ff44', ' DEFUSED!');
+      this._flashScreen('hit');
+      document.dispatchEvent(new CustomEvent('crosshair-hit'));
+      // Check chain explosion: if decoy was hit near a bomb, explode bomb
+      this._targets.delete(el);
+      if (el._expireTimeout) clearTimeout(el._expireTimeout);
+      if (el.parentNode) el.parentNode.removeChild(el);
+      return;
+    }
+
+    // TASK-351: Chain explosion — hitting decoy near active bomb triggers bomb
+    if (isDecoy) {
+      for (const t of this._targets) {
+        if (t._targetType === 'bomb' && t.object3D) {
+          const bp = t.object3D.position;
+          const dp = el.object3D ? el.object3D.position : pos;
+          const dx = bp.x - dp.x, dy = bp.y - dp.y, dz = bp.z - dp.z;
+          if (Math.sqrt(dx * dx + dy * dy + dz * dz) < 2) {
+            // Trigger bomb explosion early
+            this._removeTarget(t, true);
+            break;
+          }
+        }
+      }
+    }
+
     // TASK-300: Track reaction time
     let reactionTime = 0;
     if (el._spawnReadyTime) {
@@ -1125,7 +1230,9 @@ class TargetSystem {
       const zoneMul = this._getZoneMultiplier(pos);
       // TASK-311: Surge double points
       const surgeMul = tensionSystem.isSurgeActive ? 2 : 1;
-      const points = Math.round(basePoints * comboMultiplier * damage * powerUpMultiplier * rhythmMultiplier * zoneMul * reflexMultiplier * surgeMul);
+      // TASK-353: Darkness wave double points
+      const darknessMul = window.__darknessActive ? 2 : 1;
+      const points = Math.round(basePoints * comboMultiplier * damage * powerUpMultiplier * rhythmMultiplier * zoneMul * reflexMultiplier * surgeMul * darknessMul);
       scoreManager.add(points);
       this._onComboChange?.(this._combo);
 
@@ -1392,14 +1499,31 @@ class TargetSystem {
     this._targets.delete(el);
     if (el._expireTimeout) clearTimeout(el._expireTimeout);
     if (el._teleportInterval) clearInterval(el._teleportInterval);
+    if (el._bombTickTimer) clearInterval(el._bombTickTimer);
     const hum = this._targetHums.get(el);
     if (hum) { hum.stop(); this._targetHums.delete(el); }
     // TASK-252: cleanup height indicator
     if (el._heightIndicator?.parentNode) el._heightIndicator.parentNode.removeChild(el._heightIndicator);
     // TASK-287: cleanup orbit wrapper
     if (el._orbitWrapper?.parentNode) el._orbitWrapper.parentNode.removeChild(el._orbitWrapper);
+    // TASK-351: Bomb cleanup
+    if (el._targetType === 'bomb') this._bombActive = false;
 
     if (expired) {
+      // TASK-351: Bomb explosion on expire
+      if (el._targetType === 'bomb') {
+        audioManager.playBombExplode();
+        document.dispatchEvent(new CustomEvent('camera-shake', { detail: { intensity: 0.04, duration: 300 } }));
+        this._onPlayerDamage?.('bomb');
+        // Explosion particles
+        const pos = el.object3D ? el.object3D.position : { x: 0, y: 2, z: -5 };
+        if (window.__spawnGPUBurst) {
+          window.__spawnGPUBurst({ preset: 'explosion', position: `${pos.x} ${pos.y} ${pos.z}`, count: 30, color: '#ff4400' });
+        }
+        if (el.parentNode) el.parentNode.removeChild(el);
+        return;
+      }
+
       this._combo = 0;
       this._onComboChange?.(0);
       audioManager.playMiss();

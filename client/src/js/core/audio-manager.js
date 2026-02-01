@@ -1235,6 +1235,212 @@ class AudioManager {
       beat++;
     }, 1000); // 60 BPM
   }
+  // TASK-350: Last Stand recovery sound
+  playLastStandRecover() {
+    if (!this._enabled) return;
+    const ctx = this._getCtx();
+    const now = ctx.currentTime;
+    // Rising hopeful chord
+    [523, 659, 784].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'triangle';
+      const t = now + i * 0.08;
+      osc.frequency.setValueAtTime(freq, t);
+      gain.gain.setValueAtTime(0.2, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+      osc.connect(gain).connect(this.destination);
+      osc.start(t);
+      osc.stop(t + 0.4);
+    });
+  }
+
+  // TASK-351: Bomb tick (ascending pitch per second)
+  playBombTick(urgency = 0) {
+    if (!this._enabled) return;
+    const ctx = this._getCtx();
+    const now = ctx.currentTime;
+    const freq = 600 + urgency * 200;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(freq, now);
+    gain.gain.setValueAtTime(0.15, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+    osc.connect(gain).connect(this.destination);
+    osc.start(now);
+    osc.stop(now + 0.08);
+  }
+
+  // TASK-351: Bomb explosion
+  playBombExplode() {
+    if (!this._enabled) return;
+    const ctx = this._getCtx();
+    const now = ctx.currentTime;
+    // Noise burst + low boom
+    const bufferSize = ctx.sampleRate * 0.3;
+    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.08));
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.4, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+    src.connect(gain).connect(this.destination);
+    src.start(now);
+    // Low boom
+    const boom = ctx.createOscillator();
+    const bGain = ctx.createGain();
+    boom.type = 'sine';
+    boom.frequency.setValueAtTime(80, now);
+    boom.frequency.exponentialRampToValueAtTime(30, now + 0.25);
+    bGain.gain.setValueAtTime(0.35, now);
+    bGain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+    boom.connect(bGain).connect(this.destination);
+    boom.start(now);
+    boom.stop(now + 0.3);
+  }
+
+  // TASK-351: Bomb defuse (relief tone)
+  playBombDefuse() {
+    if (!this._enabled) return;
+    const ctx = this._getCtx();
+    const now = ctx.currentTime;
+    [880, 1047, 1319].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      const t = now + i * 0.05;
+      osc.frequency.setValueAtTime(freq, t);
+      gain.gain.setValueAtTime(0.15, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+      osc.connect(gain).connect(this.destination);
+      osc.start(t);
+      osc.stop(t + 0.25);
+    });
+  }
+
+  // TASK-352: Chain break sound
+  playChainBreak() {
+    if (!this._enabled) return;
+    const ctx = this._getCtx();
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(400, now);
+    osc.frequency.exponentialRampToValueAtTime(100, now + 0.2);
+    gain.gain.setValueAtTime(0.2, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+    osc.connect(gain).connect(this.destination);
+    osc.start(now);
+    osc.stop(now + 0.25);
+  }
+
+  // TASK-352: Chain complete sound
+  playChainComplete() {
+    if (!this._enabled) return;
+    const ctx = this._getCtx();
+    const now = ctx.currentTime;
+    [784, 988, 1175, 1568].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      const t = now + i * 0.06;
+      osc.frequency.setValueAtTime(freq, t);
+      gain.gain.setValueAtTime(0.15, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+      osc.connect(gain).connect(this.destination);
+      osc.start(t);
+      osc.stop(t + 0.3);
+    });
+  }
+
+  // TASK-353: Darkness wave warning rumble
+  playDarknessWarn() {
+    if (!this._enabled) return;
+    const ctx = this._getCtx();
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(40, now);
+    osc.frequency.linearRampToValueAtTime(60, now + 1.5);
+    gain.gain.setValueAtTime(0.05, now);
+    gain.gain.linearRampToValueAtTime(0.25, now + 1.5);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 2);
+    osc.connect(gain).connect(this.destination);
+    osc.start(now);
+    osc.stop(now + 2);
+  }
+
+  // TASK-353: Darkness start whoosh
+  playDarknessStart() {
+    if (!this._enabled) return;
+    const ctx = this._getCtx();
+    const now = ctx.currentTime;
+    const bufferSize = ctx.sampleRate * 0.5;
+    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.15));
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(200, now);
+    filter.frequency.linearRampToValueAtTime(800, now + 0.3);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.2, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+    src.connect(filter).connect(gain).connect(this.destination);
+    src.start(now);
+  }
+
+  // TASK-355: Overtime horn/siren
+  playOvertimeStart() {
+    if (!this._enabled) return;
+    const ctx = this._getCtx();
+    const now = ctx.currentTime;
+    // Ascending siren
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(300, now);
+    osc.frequency.linearRampToValueAtTime(900, now + 0.4);
+    gain.gain.setValueAtTime(0.2, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+    osc.connect(gain).connect(this.destination);
+    osc.start(now);
+    osc.stop(now + 0.5);
+    // Second horn
+    const osc2 = ctx.createOscillator();
+    const gain2 = ctx.createGain();
+    osc2.type = 'square';
+    osc2.frequency.setValueAtTime(440, now + 0.3);
+    osc2.frequency.linearRampToValueAtTime(880, now + 0.6);
+    gain2.gain.setValueAtTime(0.15, now + 0.3);
+    gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.7);
+    osc2.connect(gain2).connect(this.destination);
+    osc2.start(now + 0.3);
+    osc2.stop(now + 0.7);
+  }
+
+  // TASK-355: Overtime tick (urgent)
+  playOvertimeTick() {
+    if (!this._enabled) return;
+    const ctx = this._getCtx();
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(1000, now);
+    gain.gain.setValueAtTime(0.1, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+    osc.connect(gain).connect(this.destination);
+    osc.start(now);
+    osc.stop(now + 0.05);
+  }
 }
 
 const audioManager = new AudioManager();

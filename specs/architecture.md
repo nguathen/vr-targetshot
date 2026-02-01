@@ -547,6 +547,37 @@ Game đã có post-processing pipeline tốt (bloom, vignette, color grading, AC
 - Risk: PMREMGenerator có thể chậm trên Quest 2 → mitigated: generate offline, cache
 - Risk: Dynamic light từ muzzle flash thêm shadow recalc → mitigated: no shadows on muzzle light
 
+### ADR-014: V23 Tension & Thrill Upgrade — Last Stand, Bombs, Chain Combo, Darkness, Ghost, Overtime
+
+**Status:** Accepted
+**Date:** 2026-02-01
+
+**Context:**
+Game đã có tension mechanics (vignette, heartbeat, surge, closing walls, boss rush, slow-mo, frenzy) nhưng thiếu các khoảnh khắc "clutch" — lúc người chơi cảm thấy mình sắp thua nhưng vẫn có cơ hội lật ngược. Cần thêm risk/reward mechanics và environmental tension.
+
+**Decision:** 6 features chia 3 tier:
+
+**Tier 1 — Core Tension:**
+1. **Last Stand Mode** — Khi HP=1: desaturate, heartbeat nhanh, camera micro-shake. Bắn trúng 5 liên tiếp → hồi 1 HP + color restore. Tạo clutch moments.
+2. **Bomb Targets** — Target đếm ngược 3s, không bắn kịp = nổ mất HP. Bắn nhầm decoy gần bomb = cũng nổ. Forces precision under pressure.
+3. **Sudden Death Overtime** — Timer=0 + score ≥ 80% high score → "OVERTIME!" 10s bonus. Hit = +1s (max 15s), Miss = -2s. Clutch finish.
+
+**Tier 2 — Advanced Tension:**
+4. **Chain Lightning Combo** — Combo ≥15: spawn rate 1.5x. Combo ≥25: chain targets (bắn theo thứ tự 1→2→3). Sai thứ tự = mất combo. High risk/high reward.
+5. **Darkness Wave** — Mỗi 60s: arena tối dần (2s), chỉ thấy target glow + weapon laser. 10s duration, targets nhanh hơn. Survival horror moment.
+
+**Tier 3 — Social Tension:**
+6. **Rival Ghost** — Ghost replay của lần chơi high-score trước. Ahead = green indicator, behind = red vignette + tense music. Personal competition.
+
+**Consequences:**
+- Positive: Clutch moments tăng adrenaline — Last Stand + Overtime = memorable highlights
+- Positive: Bomb targets force precision, not just speed
+- Positive: Darkness Wave adds variety, breaks monotony
+- Positive: Rival Ghost tạo self-competition loop
+- Negative: Bomb + Chain combo thêm complexity cho new players → mitigated: chỉ spawn ở wave 3+
+- Risk: Darkness wave gây disorientation → mitigated: targets vẫn glow, 10s max duration
+- Risk: Overtime kéo dài game → mitigated: max 15s, miss penalty lớn
+
 ### ADR Template
 
 ```markdown

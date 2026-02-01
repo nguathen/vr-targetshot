@@ -97,6 +97,13 @@ class GameModeManager {
     return this._lives <= 0;
   }
 
+  // TASK-350: Last Stand recovery
+  addLife() {
+    if (this._lives === Infinity) return;
+    this._lives++;
+    this._notify();
+  }
+
   isGameOver(timeLeft) {
     if (this._lives !== Infinity && this._lives <= 0) return true;
     if (this.current.duration !== Infinity && timeLeft <= 0) return true;

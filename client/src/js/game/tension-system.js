@@ -174,6 +174,13 @@ class TensionSystem {
     if (this._heartbeatTimer) { clearInterval(this._heartbeatTimer); this._heartbeatTimer = null; }
   }
 
+  // TASK-350: Allow external heartbeat rate override
+  setHeartbeatRate(interval) {
+    if (this._heartbeatTimer) {
+      this._startHeartbeat(interval);
+    }
+  }
+
   // ─── TASK-311: Surge Events ───
 
   set onSurgeStart(fn) { this._onSurgeStart = fn; }

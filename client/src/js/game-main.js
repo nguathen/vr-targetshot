@@ -45,6 +45,32 @@ let _pbBestScore = 0;
 let _surgeCountdown = 0;
 let _surgeHudTimer = null;
 
+// TASK-350: Last Stand
+let _lastStandActive = false;
+let _lastStandConsecutiveHits = 0;
+let _lastStandShakeTimer = null;
+
+// TASK-352: Chain Lightning Combo
+let _chainComboAccelerated = false;
+
+// TASK-353: Darkness Wave
+let _darknessTimer = null;
+let _darknessActive = false;
+let _darknessElapsed = 0;
+const DARKNESS_INTERVAL = 60; // every 60s
+const DARKNESS_DURATION = 10; // 10s
+
+// TASK-354: Rival Ghost
+let _ghostData = [];
+let _ghostRecording = [];
+let _ghostInterval = null;
+
+// TASK-355: Sudden Death Overtime
+let _overtimeActive = false;
+let _overtimeTime = 0;
+let _overtimeTimer = null;
+let _overtimeTriggered = false;
+
 // Expose systems to A-Frame components (non-module)
 window.__weaponSystem = weaponSystem;
 window.__hapticManager = hapticManager;
@@ -334,6 +360,194 @@ function _hideSlowMoOverlay() {
   if (overlay) overlay.classList.remove('active');
 }
 
+// === TASK-350: Last Stand Mode ===
+function _activateLastStand() {
+  if (_lastStandActive) return;
+  _lastStandActive = true;
+  _lastStandConsecutiveHits = 0;
+  // Desaturate via bloom-effect
+  const sceneEl = document.querySelector('a-scene');
+  if (sceneEl?.hasAttribute('bloom-effect')) {
+    sceneEl.setAttribute('bloom-effect', 'saturation', 0.2);
+  }
+  // Faster heartbeat
+  tensionSystem.setHeartbeatRate?.(350);
+  // Micro camera shake
+  _lastStandShakeTimer = setInterval(() => {
+    document.dispatchEvent(new CustomEvent('camera-shake', { detail: { intensity: 0.005, duration: 50 } }));
+  }, 200);
+  // HUD
+  if (_hudCombo) {
+    _hudCombo.setAttribute('value', '💀 LAST STAND');
+    _hudCombo.setAttribute('color', '#ff0000');
+    _hudCombo.setAttribute('animation__pop', {
+      property: 'scale', from: '0.5 0.5 0.5', to: '0.4 0.4 0.4',
+      dur: 500, loop: true, dir: 'alternate', easing: 'easeInOutSine',
+    });
+  }
+}
+
+function _deactivateLastStand() {
+  if (!_lastStandActive) return;
+  _lastStandActive = false;
+  _lastStandConsecutiveHits = 0;
+  if (_lastStandShakeTimer) { clearInterval(_lastStandShakeTimer); _lastStandShakeTimer = null; }
+  // Restore saturation
+  const sceneEl = document.querySelector('a-scene');
+  if (sceneEl?.hasAttribute('bloom-effect')) {
+    sceneEl.setAttribute('bloom-effect', 'saturation', 1.0);
+  }
+  tensionSystem.setHeartbeatRate?.(500);
+  if (_hudCombo) {
+    _hudCombo.removeAttribute('animation__pop');
+    _hudCombo.setAttribute('value', '');
+  }
+}
+
+function _lastStandRecovery() {
+  if (!_lastStandActive) return;
+  _lastStandConsecutiveHits++;
+  if (_lastStandConsecutiveHits >= 5) {
+    // Recover 1 HP
+    gameModeManager.addLife();
+    _updateLivesDisplay();
+    _deactivateLastStand();
+    audioManager.playLastStandRecover();
+    hapticManager.powerUp?.();
+    // Green flash
+    if (_hudCombo) {
+      _hudCombo.setAttribute('value', '✅ SURVIVED!');
+      _hudCombo.setAttribute('color', '#44ff44');
+      _hudCombo.setAttribute('animation__pop', {
+        property: 'scale', from: '0.6 0.6 0.6', to: '0.4 0.4 0.4',
+        dur: 300, easing: 'easeOutElastic',
+      });
+      setTimeout(() => { if (_hudCombo) _hudCombo.setAttribute('value', ''); }, 2000);
+    }
+  }
+}
+
+// === TASK-353: Darkness Wave ===
+function _startDarknessWave() {
+  if (_darknessActive || _lastStandActive) return;
+  const settings = getSettings();
+  if (settings.darknessWave === false) return;
+
+  _darknessActive = true;
+  // Warning
+  if (_hudCombo) {
+    _hudCombo.setAttribute('value', '🌑 DARKNESS INCOMING...');
+    _hudCombo.setAttribute('color', '#8844ff');
+  }
+  audioManager.playDarknessWarn?.();
+
+  // Fade to dark after 3s warning
+  setTimeout(() => {
+    if (!_darknessActive) return;
+    audioManager.playDarknessStart?.();
+    const gc = _scene?.querySelector('#game-content') || _scene;
+    if (!gc) return;
+    // Dim all lights
+    const lights = gc.querySelectorAll('a-light');
+    lights.forEach(l => {
+      l._origIntensity = parseFloat(l.getAttribute('intensity') || '0.6');
+      l.setAttribute('animation__dark', {
+        property: 'intensity', to: l._origIntensity * 0.1,
+        dur: 2000, easing: 'easeInQuad',
+      });
+    });
+    // Boost target emissive
+    document.dispatchEvent(new CustomEvent('darkness-active', { detail: { active: true } }));
+    // Speed up targets
+    if (targetSystem) targetSystem.setSpawnRate(Math.round(_originalSpawnInterval * 0.67));
+    // HUD
+    if (_hudCombo) {
+      _hudCombo.setAttribute('value', '🌑 DARKNESS! 2x POINTS');
+      _hudCombo.setAttribute('color', '#ff44ff');
+    }
+    // Darkness scoring flag
+    window.__darknessActive = true;
+
+    // End darkness after duration
+    setTimeout(() => {
+      _endDarknessWave();
+    }, DARKNESS_DURATION * 1000);
+  }, 3000);
+}
+
+function _endDarknessWave() {
+  if (!_darknessActive) return;
+  _darknessActive = false;
+  window.__darknessActive = false;
+  const gc = _scene?.querySelector('#game-content') || _scene;
+  if (gc) {
+    const lights = gc.querySelectorAll('a-light');
+    lights.forEach(l => {
+      if (l._origIntensity !== undefined) {
+        l.setAttribute('animation__dark', {
+          property: 'intensity', to: l._origIntensity,
+          dur: 2000, easing: 'easeOutQuad',
+        });
+      }
+    });
+  }
+  document.dispatchEvent(new CustomEvent('darkness-active', { detail: { active: false } }));
+  if (targetSystem && !_frenzyActive) {
+    targetSystem.setSpawnRate(_originalSpawnInterval);
+  }
+  if (_hudCombo) {
+    _hudCombo.setAttribute('value', '☀️ LIGHTS ON');
+    _hudCombo.setAttribute('color', '#ffff00');
+    setTimeout(() => { if (_hudCombo) _hudCombo.setAttribute('value', ''); }, 1500);
+  }
+}
+
+// === TASK-355: Sudden Death Overtime ===
+function _startOvertime() {
+  _overtimeActive = true;
+  _overtimeTime = 10.0;
+  _overtimeTriggered = true;
+  audioManager.playOvertimeStart?.();
+  hapticManager.powerUp?.();
+  musicManager.setIntensity(20);
+
+  // Double spawn rate
+  if (targetSystem) targetSystem.setSpawnRate(Math.round(_originalSpawnInterval * 0.5));
+
+  // Banner
+  if (_hudCombo) {
+    _hudCombo.setAttribute('value', '⚡ OVERTIME!');
+    _hudCombo.setAttribute('color', '#ff4400');
+    _hudCombo.setAttribute('animation__pop', {
+      property: 'scale', from: '0.8 0.8 0.8', to: '0.4 0.4 0.4',
+      dur: 400, easing: 'easeOutElastic',
+    });
+    setTimeout(() => { if (_hudCombo) _hudCombo.setAttribute('value', ''); }, 2000);
+  }
+
+  // Timer
+  _hudTimer.setAttribute('color', '#ff0000');
+  _hudTimer.setAttribute('animation__pulse', {
+    property: 'scale', from: '0.35 0.35 0.35', to: '0.5 0.5 0.5',
+    dur: 300, loop: true, dir: 'alternate', easing: 'easeInOutSine',
+  });
+
+  _overtimeTimer = setInterval(() => {
+    _overtimeTime -= 0.1;
+    if (_hudTimer) _hudTimer.setAttribute('value', `OT: ${_overtimeTime.toFixed(1)}s`);
+    if (_overtimeTime % 1 < 0.15) audioManager.playOvertimeTick?.();
+    if (_overtimeTime <= 0) {
+      _endOvertime();
+    }
+  }, 100);
+}
+
+function _endOvertime() {
+  if (_overtimeTimer) { clearInterval(_overtimeTimer); _overtimeTimer = null; }
+  _overtimeActive = false;
+  endGame();
+}
+
 function _initRound(themeParam) {
   const container = document.getElementById('target-container');
   const mode = gameModeManager.current;
@@ -402,6 +616,29 @@ function _initRound(themeParam) {
   _shotsHit = 0;
   _currentStreak = 0;
 
+  // V23: Reset tension state
+  _lastStandActive = false;
+  _lastStandConsecutiveHits = 0;
+  if (_lastStandShakeTimer) { clearInterval(_lastStandShakeTimer); _lastStandShakeTimer = null; }
+  _chainComboAccelerated = false;
+  _darknessActive = false;
+  window.__darknessActive = false;
+  _darknessElapsed = 0;
+  _overtimeActive = false;
+  _overtimeTime = 0;
+  _overtimeTriggered = false;
+  if (_overtimeTimer) { clearInterval(_overtimeTimer); _overtimeTimer = null; }
+  if (_darknessTimer) { clearInterval(_darknessTimer); _darknessTimer = null; }
+  if (_ghostInterval) { clearInterval(_ghostInterval); _ghostInterval = null; }
+  _ghostRecording = [];
+
+  // TASK-354: Load rival ghost data
+  const modeId = gameModeManager.current.id;
+  try {
+    const raw = localStorage.getItem('ghostRun_' + modeId);
+    _ghostData = raw ? JSON.parse(raw) : [];
+  } catch (_e) { _ghostData = []; }
+
   // PB pace comparison
   _pbBestScore = authManager.profile?.highScores?.[mode.id] || 0;
   _gameStartTime = Date.now();
@@ -469,19 +706,45 @@ function _initRound(themeParam) {
       dur: 150, easing: 'easeOutQuad',
     });
 
-    // TASK-314: PB Pace indicator
-    if (_hudPbPace && _pbBestScore > 0 && timeLeft !== Infinity) {
+    // TASK-314 + TASK-354: PB Pace indicator with ghost comparison
+    if (_hudPbPace && _pbBestScore > 0) {
       const elapsed = Date.now() - _gameStartTime;
-      const duration = gameModeManager.current.duration * 1000;
-      const progress = elapsed / duration;
-      const expectedAtThisPoint = Math.round(_pbBestScore * progress);
-      const diff = score - expectedAtThisPoint;
-      if (diff >= 0) {
-        _hudPbPace.setAttribute('value', `▲ +${diff}`);
-        _hudPbPace.setAttribute('color', '#44ff44');
-      } else {
-        _hudPbPace.setAttribute('value', `▼ ${diff}`);
-        _hudPbPace.setAttribute('color', '#ff4444');
+      // TASK-354: Use ghost data if available, else estimate linearly
+      let expectedAtThisPoint = 0;
+      if (_ghostData.length > 0) {
+        const elapsedMs = elapsed;
+        // Find closest ghost data point
+        for (let i = _ghostData.length - 1; i >= 0; i--) {
+          if (_ghostData[i].time <= elapsedMs) {
+            expectedAtThisPoint = _ghostData[i].score;
+            break;
+          }
+        }
+      } else if (timeLeft !== Infinity) {
+        const duration = gameModeManager.current.duration * 1000;
+        const progress = elapsed / duration;
+        expectedAtThisPoint = Math.round(_pbBestScore * progress);
+      }
+      if (expectedAtThisPoint > 0 || _ghostData.length > 0) {
+        const diff = score - expectedAtThisPoint;
+        if (diff >= 0) {
+          _hudPbPace.setAttribute('value', `▲ +${diff}`);
+          _hudPbPace.setAttribute('color', '#44ff44');
+        } else {
+          _hudPbPace.setAttribute('value', `▼ ${diff}`);
+          _hudPbPace.setAttribute('color', '#ff4444');
+          // TASK-354: Behind ghost = subtle red tint
+          if (diff < -50) {
+            musicManager.setIntensity(Math.max(musicManager._intensity || 0, 2));
+          }
+        }
+        // TASK-354: New record pace flash
+        if (score > _pbBestScore && !_hudPbPace._recordFlashed) {
+          _hudPbPace._recordFlashed = true;
+          _hudPbPace.setAttribute('value', '🏆 NEW RECORD PACE!');
+          _hudPbPace.setAttribute('color', '#ffd700');
+          setTimeout(() => { if (_hudPbPace) _hudPbPace._recordFlashed = false; }, 3000);
+        }
       }
     }
   });
@@ -489,6 +752,15 @@ function _initRound(themeParam) {
   targetSystem.onComboChange = (combo) => {
     // TASK-310: Update tension vignette for combo
     tensionSystem.updateCombo(combo);
+
+    // TASK-350: Last Stand recovery on hit
+    if (combo > 0 && _lastStandActive) {
+      _lastStandRecovery();
+    }
+    // TASK-355: Overtime hit bonus
+    if (combo > 0 && _overtimeActive) {
+      _overtimeTime = Math.min(15, _overtimeTime + 1);
+    }
 
     // TASK-314: Streak counter
     if (combo > 0) {
@@ -565,16 +837,40 @@ function _initRound(themeParam) {
 
       // Dynamic music intensity
       musicManager.setIntensity(combo);
+
+      // TASK-352: Chain Combo acceleration
+      if (combo >= 15 && !_chainComboAccelerated) {
+        _chainComboAccelerated = true;
+        targetSystem.setSpawnRate(Math.round(_originalSpawnInterval * 0.67));
+        if (_hudCombo) {
+          _hudCombo.setAttribute('value', `⚡ x${combo} CHAIN RUSH!`);
+        }
+      }
     } else {
       _hudCombo.setAttribute('value', '');
       _hudCombo.removeAttribute('animation__pop');
       _updateComboVignette(0);
       _updateBarrierComboGlow(0);
       musicManager.setIntensity(0);
+      // TASK-352: Reset chain acceleration
+      if (_chainComboAccelerated) {
+        _chainComboAccelerated = false;
+        if (!_frenzyActive && !_darknessActive && !_overtimeActive) {
+          targetSystem.setSpawnRate(_originalSpawnInterval);
+        }
+      }
     }
   };
 
   targetSystem.onMiss = () => {
+    // TASK-355: Overtime hit/miss
+    if (_overtimeActive) {
+      _overtimeTime = Math.max(0, _overtimeTime - 2);
+      return;
+    }
+    // TASK-350: Reset Last Stand consecutive hits on miss
+    _lastStandConsecutiveHits = 0;
+
     const currentMode = gameModeManager.current;
     if (currentMode.lives !== Infinity) {
       const dead = gameModeManager.loseLife();
@@ -594,11 +890,15 @@ function _initRound(themeParam) {
           _hudLives.removeAttribute('animation__shake');
         }, 500);
       }
+      // TASK-350: Activate Last Stand at 1 HP
+      if (!dead && gameModeManager.lives === 1) {
+        _activateLastStand();
+      }
       if (dead) endGame();
     }
   };
 
-  // Player damage from projectiles, chargers, danger zones (TASK-250/251/253)
+  // Player damage from projectiles, chargers, danger zones, bombs (TASK-250/251/253/351)
   targetSystem.onPlayerDamage = (source) => {
     // TASK-271: Shield absorbs hit
     if (powerUpManager.consumeShield()) {
@@ -612,14 +912,20 @@ function _initRound(themeParam) {
       }
       return;
     }
+    // TASK-350: Reset Last Stand hits on damage
+    _lastStandConsecutiveHits = 0;
     const currentMode = gameModeManager.current;
     if (currentMode.lives !== Infinity) {
       const dead = gameModeManager.loseLife();
       _updateLivesDisplay();
+      // TASK-350: Activate Last Stand at 1 HP
+      if (!dead && gameModeManager.lives === 1) {
+        _activateLastStand();
+      }
       if (dead) endGame();
     } else {
       // Time attack: deduct points
-      scoreManager.add(source === 'dangerZone' ? -10 : -20);
+      scoreManager.add(source === 'dangerZone' ? -10 : source === 'bomb' ? -30 : -20);
     }
     // Camera shake on damage
     document.dispatchEvent(new CustomEvent('camera-shake', { detail: { intensity: 0.02, duration: 200 } }));
@@ -903,6 +1209,25 @@ function startRound() {
 
   _updateLivesDisplay();
 
+  // TASK-353: Darkness wave timer (every 60s)
+  _darknessElapsed = 0;
+  if (_darknessTimer) clearInterval(_darknessTimer);
+  _darknessTimer = setInterval(() => {
+    _darknessElapsed++;
+    if (_darknessElapsed >= DARKNESS_INTERVAL && !_darknessActive && gameManager.state === GameState.PLAYING) {
+      _darknessElapsed = 0;
+      _startDarknessWave();
+    }
+  }, 1000);
+
+  // TASK-354: Ghost recording (every 1s)
+  if (_ghostInterval) clearInterval(_ghostInterval);
+  _ghostInterval = setInterval(() => {
+    if (gameManager.state === GameState.PLAYING) {
+      _ghostRecording.push({ time: Date.now() - _gameStartTime, score: scoreManager.score });
+    }
+  }, 1000);
+
   if (timerInterval) clearInterval(timerInterval);
   if (timeLeft !== Infinity) {
     timerInterval = setInterval(() => {
@@ -958,6 +1283,16 @@ function startRound() {
       }
 
       if (timeLeft <= 0) {
+        // TASK-355: Check for overtime eligibility
+        if (!_overtimeTriggered && _pbBestScore > 0) {
+          const score = scoreManager.score;
+          if (score >= _pbBestScore * 0.8) {
+            clearInterval(timerInterval);
+            timerInterval = null;
+            _startOvertime();
+            return;
+          }
+        }
         endGame();
       }
     }, 1000);
@@ -966,6 +1301,16 @@ function startRound() {
 
 async function endGame() {
   if (timerInterval) clearInterval(timerInterval);
+  if (_overtimeTimer) { clearInterval(_overtimeTimer); _overtimeTimer = null; }
+  if (_darknessTimer) { clearInterval(_darknessTimer); _darknessTimer = null; }
+  if (_ghostInterval) { clearInterval(_ghostInterval); _ghostInterval = null; }
+  if (_lastStandShakeTimer) { clearInterval(_lastStandShakeTimer); _lastStandShakeTimer = null; }
+  _overtimeActive = false;
+  _darknessActive = false;
+  window.__darknessActive = false;
+  _lastStandActive = false;
+  _chainComboAccelerated = false;
+
   if (_btnQuitVr) _btnQuitVr.setAttribute('visible', 'false');
   gameManager.changeState(GameState.GAME_OVER);
   targetSystem.stop();
@@ -978,13 +1323,25 @@ async function endGame() {
   arenaReactions.stop();
   audioManager.playGameOver();
 
+  // Restore bloom saturation if Last Stand was active
+  const sceneEl = document.querySelector('a-scene');
+  if (sceneEl?.hasAttribute('bloom-effect')) {
+    sceneEl.setAttribute('bloom-effect', 'saturation', 1.0);
+  }
+
   const result = scoreManager.finalize();
   const currentMode = gameModeManager.current;
 
   const summary = buildSummary(result, authManager.profile, currentMode, targetSystem);
   const xpEarned = summary.xpEarned;
 
+  // TASK-354: Save ghost recording if new high score
   const isNewHigh = await authManager.updateHighScore(currentMode.id, result.score);
+  if (isNewHigh && _ghostRecording.length > 0) {
+    try {
+      localStorage.setItem('ghostRun_' + currentMode.id, JSON.stringify(_ghostRecording));
+    } catch (_e) { /* ignore */ }
+  }
   const levelResult = await authManager.addXp(xpEarned);
   await authManager.recordGameResult({
     targetsHit: targetSystem.targetsHit,
