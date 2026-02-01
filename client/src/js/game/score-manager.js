@@ -30,6 +30,10 @@ class ScoreManager {
     this._listeners.push(fn);
   }
 
+  clearListeners() {
+    this._listeners = [];
+  }
+
   _notify() {
     this._listeners.forEach(fn => fn(this._score));
   }

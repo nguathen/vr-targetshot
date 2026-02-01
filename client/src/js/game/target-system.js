@@ -1543,6 +1543,10 @@ class TargetSystem {
   _clearAll() {
     this._targets.forEach(el => {
       if (el._expireTimeout) clearTimeout(el._expireTimeout);
+      if (el._bombTickTimer) clearInterval(el._bombTickTimer);
+      if (el._teleportInterval) clearInterval(el._teleportInterval);
+      if (el._orbitWrapper?.parentNode) el._orbitWrapper.parentNode.removeChild(el._orbitWrapper);
+      if (el._heightIndicator?.parentNode) el._heightIndicator.parentNode.removeChild(el._heightIndicator);
       if (el.parentNode) el.parentNode.removeChild(el);
     });
     this._targets.clear();

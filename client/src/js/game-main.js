@@ -53,10 +53,22 @@ let _lastStandShakeTimer = null;
 // TASK-352: Chain Lightning Combo
 let _chainComboAccelerated = false;
 
+/** Resolve spawn rate from all active modifiers — lowest multiplier wins */
+function _resolveSpawnRate() {
+  let mul = 1.0;
+  if (_overtimeActive) mul = Math.min(mul, 0.5);
+  if (_darknessActive && window.__darknessActive) mul = Math.min(mul, 0.67);
+  if (_chainComboAccelerated) mul = Math.min(mul, 0.67);
+  if (_frenzyActive) mul = Math.min(mul, 0.33);
+  if (targetSystem) targetSystem.setSpawnRate(Math.round(_originalSpawnInterval * mul));
+}
+
 // TASK-353: Darkness Wave
 let _darknessTimer = null;
 let _darknessActive = false;
 let _darknessElapsed = 0;
+let _darknessPhaseTimeout = null;
+let _darknessEndTimeout = null;
 const DARKNESS_INTERVAL = 60; // every 60s
 const DARKNESS_DURATION = 10; // 10s
 
@@ -341,6 +353,22 @@ function _initOnce() {
       setTimeout(() => _hudCombo.setAttribute('value', ''), 2000);
     }
   });
+
+  // TASK-288: Wave event HUD announcement (registered once)
+  document.addEventListener('wave-event', (evt) => {
+    if (gameManager.state !== GameState.PLAYING) return;
+    const names = { swarm: '🌊 SWARM!', sniper: '🎯 SNIPER DUEL!', bonusRain: '🌟 BONUS RAIN!', shieldWall: '🛡️ SHIELD WALL!' };
+    const name = names[evt.detail?.name] || evt.detail?.name;
+    if (_hudCombo) {
+      _hudCombo.setAttribute('value', name);
+      _hudCombo.setAttribute('color', '#ff8800');
+      _hudCombo.setAttribute('animation__pop', {
+        property: 'scale', from: '0.6 0.6 0.6', to: '0.4 0.4 0.4',
+        dur: 300, easing: 'easeOutElastic',
+      });
+      setTimeout(() => { if (_hudCombo) _hudCombo.setAttribute('value', ''); }, 2000);
+    }
+  });
 }
 
 function _showSlowMoOverlay() {
@@ -442,7 +470,7 @@ function _startDarknessWave() {
   audioManager.playDarknessWarn?.();
 
   // Fade to dark after 3s warning
-  setTimeout(() => {
+  _darknessPhaseTimeout = setTimeout(() => {
     if (!_darknessActive) return;
     audioManager.playDarknessStart?.();
     const gc = _scene?.querySelector('#game-content') || _scene;
@@ -469,7 +497,7 @@ function _startDarknessWave() {
     window.__darknessActive = true;
 
     // End darkness after duration
-    setTimeout(() => {
+    _darknessEndTimeout = setTimeout(() => {
       _endDarknessWave();
     }, DARKNESS_DURATION * 1000);
   }, 3000);
@@ -492,9 +520,7 @@ function _endDarknessWave() {
     });
   }
   document.dispatchEvent(new CustomEvent('darkness-active', { detail: { active: false } }));
-  if (targetSystem && !_frenzyActive) {
-    targetSystem.setSpawnRate(_originalSpawnInterval);
-  }
+  _resolveSpawnRate();
   if (_hudCombo) {
     _hudCombo.setAttribute('value', '☀️ LIGHTS ON');
     _hudCombo.setAttribute('color', '#ffff00');
@@ -593,9 +619,7 @@ function _initRound(themeParam) {
     targetSystem.setSpawnRate(Math.round(_originalSpawnInterval * 0.5));
   };
   tensionSystem.onSurgeEnd = () => {
-    if (!_frenzyActive) {
-      targetSystem.setSpawnRate(_originalSpawnInterval);
-    }
+    _resolveSpawnRate();
   };
 
   // TASK-312: Debuff HUD callback
@@ -629,6 +653,8 @@ function _initRound(themeParam) {
   _overtimeTriggered = false;
   if (_overtimeTimer) { clearInterval(_overtimeTimer); _overtimeTimer = null; }
   if (_darknessTimer) { clearInterval(_darknessTimer); _darknessTimer = null; }
+  if (_darknessPhaseTimeout) { clearTimeout(_darknessPhaseTimeout); _darknessPhaseTimeout = null; }
+  if (_darknessEndTimeout) { clearTimeout(_darknessEndTimeout); _darknessEndTimeout = null; }
   if (_ghostInterval) { clearInterval(_ghostInterval); _ghostInterval = null; }
   _ghostRecording = [];
 
@@ -683,21 +709,7 @@ function _initRound(themeParam) {
     if (_hudPowerup) _hudPowerup.setAttribute('value', '');
   };
 
-  // TASK-288: Wave event HUD announcement
-  document.addEventListener('wave-event', (evt) => {
-    const names = { swarm: '🌊 SWARM!', sniper: '🎯 SNIPER DUEL!', bonusRain: '🌟 BONUS RAIN!', shieldWall: '🛡️ SHIELD WALL!' };
-    const name = names[evt.detail?.name] || evt.detail?.name;
-    if (_hudCombo) {
-      _hudCombo.setAttribute('value', name);
-      _hudCombo.setAttribute('color', '#ff8800');
-      _hudCombo.setAttribute('animation__pop', {
-        property: 'scale', from: '0.6 0.6 0.6', to: '0.4 0.4 0.4',
-        dur: 300, easing: 'easeOutElastic',
-      });
-      setTimeout(() => { if (_hudCombo) _hudCombo.setAttribute('value', ''); }, 2000);
-    }
-  });
-
+  scoreManager.clearListeners();
   scoreManager.onChange(score => {
     _hudScore.setAttribute('value', `Score: ${score}`);
     // Score pop animation
@@ -855,9 +867,7 @@ function _initRound(themeParam) {
       // TASK-352: Reset chain acceleration
       if (_chainComboAccelerated) {
         _chainComboAccelerated = false;
-        if (!_frenzyActive && !_darknessActive && !_overtimeActive) {
-          targetSystem.setSpawnRate(_originalSpawnInterval);
-        }
+        _resolveSpawnRate();
       }
     }
   };
@@ -1303,6 +1313,8 @@ async function endGame() {
   if (timerInterval) clearInterval(timerInterval);
   if (_overtimeTimer) { clearInterval(_overtimeTimer); _overtimeTimer = null; }
   if (_darknessTimer) { clearInterval(_darknessTimer); _darknessTimer = null; }
+  if (_darknessPhaseTimeout) { clearTimeout(_darknessPhaseTimeout); _darknessPhaseTimeout = null; }
+  if (_darknessEndTimeout) { clearTimeout(_darknessEndTimeout); _darknessEndTimeout = null; }
   if (_ghostInterval) { clearInterval(_ghostInterval); _ghostInterval = null; }
   if (_lastStandShakeTimer) { clearInterval(_lastStandShakeTimer); _lastStandShakeTimer = null; }
   _overtimeActive = false;
