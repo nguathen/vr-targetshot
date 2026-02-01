@@ -25,10 +25,30 @@ AFRAME.registerComponent('shoot-controls', {
       this.el.removeEventListener(e, this._onTrigger);
     });
     if (this._flashTimeout) clearTimeout(this._flashTimeout);
+    // TASK-342: Clean up reusable muzzle light
+    if (this._muzzleLight && this._muzzleLight.parent) {
+      this._muzzleLight.parent.remove(this._muzzleLight);
+      this._muzzleLight.dispose();
+      this._muzzleLight = null;
+    }
   },
 
   tick(time, delta) {
-    if (this._recoiling || !delta) return;
+    if (!delta) return;
+
+    // TASK-342: Fade muzzle light
+    if (this._muzzleLight && this._muzzleLightFade > 0) {
+      this._muzzleLightFade -= delta;
+      if (this._muzzleLightFade <= 0) {
+        this._muzzleLight.intensity = 0;
+        this._muzzleLightFade = 0;
+      } else {
+        // Fade from 2.0 to 0 over 50ms
+        this._muzzleLight.intensity = 2.0 * (this._muzzleLightFade / 50);
+      }
+    }
+
+    if (this._recoiling) return;
     this._swayTime += delta * 0.001;
     const obj = this.el.object3D;
     if (!obj) return;
@@ -272,48 +292,64 @@ AFRAME.registerComponent('shoot-controls', {
     }, 180);
   },
 
+  // TASK-342: Reusable muzzle light + rate limiter
+  _muzzleLight: null,
+  _muzzleLightFade: 0,
+  _lastFlashTime: 0,
+
   _spawnMuzzleFlash(weapon) {
     const scene = this.el.sceneEl;
     if (!scene) return;
 
+    // Check settings
+    const settings = typeof window.__getSettings === 'function' ? window.__getSettings() : {};
+    if (settings.muzzleFlash === false) return;
+
+    // Rate limit: max 1 flash per 80ms (prevents strobe with SMG)
+    const now = performance.now();
+    if (now - this._lastFlashTime < 80) return;
+    this._lastFlashTime = now;
+
     const pos = new THREE.Vector3();
     this.el.object3D.getWorldPosition(pos);
-
     const color = weapon?.laserColor || '#ffffff';
 
-    // TASK-320: GPU particle muzzle flash
+    // TASK-342: Enhanced GPU particle burst (more particles, cone spread)
     if (window.__spawnGPUBurst) {
+      const dir = new THREE.Vector3();
+      this.el.object3D.getWorldDirection(dir);
+      dir.negate(); // forward direction
       window.__spawnGPUBurst(scene, pos, {
-        count: 5, color, size: 0.03, speed: 3, lifetime: 100,
+        count: 10, color, size: 0.03, speed: 4, lifetime: 80,
+        spread: 0.3, direction: dir,
       });
     }
 
+    // Visual flash sphere (entity-based, lightweight)
     const flashSize = weapon?.id === 'shotgun' ? 0.1 : weapon?.id === 'sniper' ? 0.06 : 0.07;
     const flash = document.createElement('a-sphere');
     flash.setAttribute('position', `${pos.x} ${pos.y} ${pos.z}`);
     flash.setAttribute('radius', String(flashSize));
     flash.setAttribute('material', `shader: flat; color: ${color}; emissive: ${color}; emissiveIntensity: 2; opacity: 0.9; transparent: true`);
     flash.setAttribute('shadow', 'cast: false; receive: false');
-
     scene.appendChild(flash);
-
     flash.setAttribute('animation__shrink', {
       property: 'scale', from: '1.2 1.2 1.2', to: '0 0 0',
       dur: 80, easing: 'easeOutQuad',
     });
-    setTimeout(() => {
-      if (flash.parentNode) flash.parentNode.removeChild(flash);
-    }, 100);
+    setTimeout(() => { if (flash.parentNode) flash.parentNode.removeChild(flash); }, 100);
 
-    // Muzzle point light (brief flash illumination)
-    const mLight = document.createElement('a-entity');
-    mLight.setAttribute('position', `${pos.x} ${pos.y} ${pos.z}`);
-    mLight.setAttribute('light', `type: point; color: ${color}; intensity: 2; distance: 4; decay: 2`);
-    mLight.setAttribute('animation__dim', {
-      property: 'light.intensity', from: 2, to: 0, dur: 100, easing: 'easeOutQuad',
-    });
-    scene.appendChild(mLight);
-    setTimeout(() => { if (mLight.parentNode) mLight.parentNode.removeChild(mLight); }, 120);
+    // TASK-342: Reusable Three.js PointLight (no create/destroy per shot)
+    if (!this._muzzleLight) {
+      this._muzzleLight = new THREE.PointLight(0xffffff, 0, 3, 2);
+      this._muzzleLight.castShadow = false;
+      scene.object3D.add(this._muzzleLight);
+    }
+    const c = new THREE.Color(color);
+    this._muzzleLight.color.copy(c);
+    this._muzzleLight.intensity = 2.0;
+    this._muzzleLight.position.set(pos.x, pos.y, pos.z);
+    this._muzzleLightFade = 50; // ms remaining
   },
 
   _spawnRicochet(point) {

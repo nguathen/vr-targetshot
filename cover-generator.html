@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>body { margin: 0; background: #000; overflow: hidden; }</style>
+</head>
+<body>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+let scene, camera, renderer;
+const params = new URLSearchParams(window.location.search);
+const asset = params.get('asset') || 'landscape';
+
+const SIZES = {
+  landscape: { w: 2560, h: 1440 },
+  square: { w: 1440, h: 1440 },
+  portrait: { w: 1008, h: 1440 },
+  hero: { w: 3000, h: 900 },
+  icon: { w: 512, h: 512 }
+};
+
+const size = SIZES[asset];
+
+function init() {
+  renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+  renderer.setSize(size.w, size.h);
+  renderer.shadowMap.enabled = true;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.3;
+  document.body.appendChild(renderer.domElement);
+
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0a0a1a);
+  scene.fog = new THREE.FogExp2(0x0a0a1a, 0.012);
+
+  camera = new THREE.PerspectiveCamera(60, size.w / size.h, 0.1, 100);
+
+  if (asset === 'icon') {
+    buildIcon();
+  } else {
+    buildCover();
+  }
+
+  renderer.render(scene, camera);
+
+  // Overlay title text on top of rendered scene (2D, no occlusion)
+  if (asset !== 'icon') {
+    const titleSizes = {
+      landscape: [120, 60],
+      square: [90, 45],
+      portrait: [70, 36],
+      hero: [90, 45]
+    };
+    const [ts, ss] = titleSizes[asset] || [100, 50];
+    drawTitleOverlay(ts, ss);
+  }
+
+  window.SCENE_READY = true;
+}
+
+function createArenaElements(scene) {
+  // Floor
+  const floorGeo = new THREE.PlaneGeometry(40, 40, 40, 40);
+  const floorMat = new THREE.MeshStandardMaterial({ color: 0x111122, metalness: 0.8, roughness: 0.3 });
+  const floor = new THREE.Mesh(floorGeo, floorMat);
+  floor.rotation.x = -Math.PI / 2;
+  floor.receiveShadow = true;
+  scene.add(floor);
+
+  // Wireframe
+  const wireGeo = new THREE.PlaneGeometry(40, 40, 40, 40);
+  const wireMat = new THREE.MeshBasicMaterial({ color: 0x00d4ff, wireframe: true, transparent: true, opacity: 0.12 });
+  const wire = new THREE.Mesh(wireGeo, wireMat);
+  wire.rotation.x = -Math.PI / 2;
+  wire.position.y = 0.02;
+  scene.add(wire);
+
+  // Floor rings
+  [5, 8, 12].forEach((r, i) => {
+    const ringGeo = new THREE.TorusGeometry(r, 0.06, 8, 64);
+    const ringMat = new THREE.MeshBasicMaterial({ color: [0x00d4ff, 0x4466ff, 0xff44aa][i], transparent: true, opacity: 0.3 });
+    const ring = new THREE.Mesh(ringGeo, ringMat);
+    ring.rotation.x = Math.PI / 2;
+    ring.position.y = -0.3 - i * 0.3;
+    scene.add(ring);
+  });
+
+  // Corner pillars
+  const pillarColors = [0x4466ff, 0x00ff88, 0xff4444, 0xff44aa];
+  const corners = [[-14,-14],[14,-14],[-14,14],[14,14]];
+  corners.forEach((c, i) => {
+    const pillarGeo = new THREE.CylinderGeometry(0.3, 0.4, 8, 8);
+    const pillarMat = new THREE.MeshStandardMaterial({ color: 0x222233, metalness: 0.9, roughness: 0.2 });
+    const pillar = new THREE.Mesh(pillarGeo, pillarMat);
+    pillar.position.set(c[0], 4, c[1]);
+    scene.add(pillar);
+
+    const orbGeo = new THREE.SphereGeometry(0.5, 16, 16);
+    const orbMat = new THREE.MeshBasicMaterial({ color: pillarColors[i] });
+    const orb = new THREE.Mesh(orbGeo, orbMat);
+    orb.position.set(c[0], 8.5, c[1]);
+    scene.add(orb);
+
+    const light = new THREE.PointLight(pillarColors[i], 2, 20);
+    light.position.set(c[0], 8.5, c[1]);
+    scene.add(light);
+  });
+
+  // Barriers
+  const barrierMat = new THREE.MeshStandardMaterial({ color: 0x0044ff, transparent: true, opacity: 0.12, emissive: 0x0022aa, emissiveIntensity: 0.5 });
+  [{x:0,z:-16,ry:0},{x:0,z:16,ry:0},{x:-16,z:0,ry:Math.PI/2},{x:16,z:0,ry:Math.PI/2}].forEach(p => {
+    const barrier = new THREE.Mesh(new THREE.PlaneGeometry(32, 6), barrierMat);
+    barrier.position.set(p.x, 3, p.z);
+    barrier.rotation.y = p.ry;
+    scene.add(barrier);
+    const lineGeo = new THREE.BoxGeometry(32, 0.05, 0.05);
+    const lineMat = new THREE.MeshBasicMaterial({ color: 0x00d4ff });
+    const line = new THREE.Mesh(lineGeo, lineMat);
+    line.position.set(p.x, 0.05, p.z);
+    line.rotation.y = p.ry;
+    scene.add(line);
+  });
+
+  // Lights
+  scene.add(new THREE.AmbientLight(0x222244, 0.5));
+  const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+  dirLight.position.set(5, 15, 5);
+  scene.add(dirLight);
+  scene.add(new THREE.PointLight(0x4466ff, 3, 30).translateY(6));
+}
+
+function createTarget(type, x, y, z) {
+  let geo, mat;
+  const configs = {
+    standard: { geo: new THREE.IcosahedronGeometry(0.6, 0), color: 0xffffff, emissive: 0x00d4ff, ei: 0.3 },
+    speed: { geo: new THREE.OctahedronGeometry(0.5, 0), color: 0xffaa00, emissive: 0xffaa00, ei: 0.4 },
+    heavy: { geo: new THREE.DodecahedronGeometry(0.7, 0), color: 0xff4444, emissive: 0xff2222, ei: 0.3 },
+    bonus: { geo: new THREE.TorusGeometry(0.5, 0.15, 8, 16), color: 0xffd700, emissive: 0xffd700, ei: 0.5 },
+    powerup: { geo: new THREE.TorusKnotGeometry(0.4, 0.12, 64, 8), color: 0x00d4ff, emissive: 0x00d4ff, ei: 0.6 },
+    blink: { geo: new THREE.IcosahedronGeometry(0.5, 1), color: 0xff44aa, emissive: 0xff44aa, ei: 0.5 }
+  };
+  const c = configs[type];
+  mat = new THREE.MeshStandardMaterial({ color: c.color, emissive: c.emissive, emissiveIntensity: c.ei, metalness: 0.6, roughness: 0.2 });
+  const mesh = new THREE.Mesh(c.geo, mat);
+  mesh.position.set(x, y, z);
+  mesh.rotation.set(Math.random()*Math.PI, Math.random()*Math.PI, Math.random()*Math.PI);
+  mesh.castShadow = true;
+  return mesh;
+}
+
+function drawTitleOverlay(fontSize, subtitleSize) {
+  const ctx = renderer.domElement.getContext('2d', { willReadFrequently: true });
+  // Since WebGL canvas doesn't support 2d context, draw on a temp canvas and composite
+  const overlay = document.createElement('canvas');
+  overlay.width = size.w;
+  overlay.height = size.h;
+  const octx = overlay.getContext('2d');
+
+  // Semi-transparent backdrop behind text area
+  const grad = octx.createLinearGradient(0, size.h * 0.28, 0, size.h * 0.78);
+  grad.addColorStop(0, 'rgba(10, 10, 26, 0)');
+  grad.addColorStop(0.2, 'rgba(10, 10, 26, 0.55)');
+  grad.addColorStop(0.8, 'rgba(10, 10, 26, 0.55)');
+  grad.addColorStop(1, 'rgba(10, 10, 26, 0)');
+  octx.fillStyle = grad;
+  octx.fillRect(0, size.h * 0.28, size.w, size.h * 0.5);
+
+  // Title
+  octx.font = `bold ${fontSize}px monospace`;
+  octx.textAlign = 'center';
+  octx.textBaseline = 'middle';
+
+  // Glow
+  octx.shadowColor = '#00d4ff';
+  octx.shadowBlur = 30;
+  octx.fillStyle = '#00d4ff';
+  octx.fillText('VR TARGET SHOOTER', size.w/2, size.h * 0.42);
+  octx.shadowBlur = 0;
+
+  // Crisp text
+  octx.fillStyle = '#ffffff';
+  octx.fillText('VR TARGET SHOOTER', size.w/2, size.h * 0.42);
+
+  // Subtitle
+  octx.font = `bold ${subtitleSize}px monospace`;
+  octx.fillStyle = '#00ff88';
+  octx.shadowColor = '#00ff88';
+  octx.shadowBlur = 15;
+  octx.fillText('5 MODES \u2022 5 WEAPONS \u2022 LEADERBOARDS', size.w/2, size.h * 0.58);
+  octx.shadowBlur = 0;
+  octx.fillText('5 MODES \u2022 5 WEAPONS \u2022 LEADERBOARDS', size.w/2, size.h * 0.58);
+
+  // Bottom tagline
+  octx.font = `${Math.floor(subtitleSize * 0.6)}px monospace`;
+  octx.fillStyle = '#aaaacc';
+  octx.globalAlpha = 0.7;
+  octx.fillText('SHOOT \u2022 SCORE \u2022 SURVIVE', size.w/2, size.h * 0.72);
+  octx.globalAlpha = 1;
+
+  // Composite onto renderer canvas
+  const finalCanvas = document.createElement('canvas');
+  finalCanvas.width = size.w;
+  finalCanvas.height = size.h;
+  const fctx = finalCanvas.getContext('2d');
+  fctx.drawImage(renderer.domElement, 0, 0);
+  fctx.drawImage(overlay, 0, 0);
+
+  // Replace renderer canvas content
+  const glCtx = renderer.domElement.getContext('webgl') || renderer.domElement.getContext('webgl2');
+  // Can't draw 2d on webgl canvas, so replace the DOM element
+  finalCanvas.style.cssText = renderer.domElement.style.cssText;
+  renderer.domElement.parentNode.replaceChild(finalCanvas, renderer.domElement);
+  renderer.domElement = finalCanvas;
+}
+
+function addParticles(scene, count, spread) {
+  const geo = new THREE.BufferGeometry();
+  const positions = [];
+  for (let i = 0; i < count; i++) {
+    positions.push(
+      (Math.random() - 0.5) * spread,
+      Math.random() * 12 + 1,
+      (Math.random() - 0.5) * spread
+    );
+  }
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  const colors = [0x00d4ff, 0x00ff88, 0xff44aa, 0xffaa00];
+  const mat = new THREE.PointsMaterial({
+    color: colors[Math.floor(Math.random()*4)],
+    size: 0.1,
+    transparent: true,
+    opacity: 0.6
+  });
+  scene.add(new THREE.Points(geo, mat));
+}
+
+function buildCover() {
+  // Camera angle: cinematic overview
+  camera.position.set(-5, 6, 8);
+  camera.lookAt(0, 2, -3);
+
+  createArenaElements(scene);
+
+  // Scatter targets
+  scene.add(createTarget('standard', -3, 3, -5));
+  scene.add(createTarget('standard', 5, 2.5, -8));
+  scene.add(createTarget('speed', -7, 4, -2));
+  scene.add(createTarget('heavy', 3, 1.5, -4));
+  scene.add(createTarget('bonus', 0, 5.5, -7));
+  scene.add(createTarget('blink', 8, 3, -3));
+  scene.add(createTarget('powerup', -5, 2, -10));
+  scene.add(createTarget('standard', 2, 4, 3));
+
+  // Laser beams
+  const laserPoints = [
+    [[0.3, 1.5, 0], [-3, 3, -5]],
+    [[-0.3, 1.4, 0], [5, 2.5, -8]]
+  ];
+  laserPoints.forEach(([from, to]) => {
+    const points = [new THREE.Vector3(...from), new THREE.Vector3(...to)];
+    const geo = new THREE.BufferGeometry().setFromPoints(points);
+    const mat = new THREE.LineBasicMaterial({ color: 0x00d4ff });
+    scene.add(new THREE.Line(geo, mat));
+
+    const dir = new THREE.Vector3(...to).sub(new THREE.Vector3(...from));
+    const len = dir.length();
+    const tubeGeo = new THREE.CylinderGeometry(0.025, 0.025, len, 8);
+    const tubeMat = new THREE.MeshBasicMaterial({ color: 0x00d4ff, transparent: true, opacity: 0.35 });
+    const tube = new THREE.Mesh(tubeGeo, tubeMat);
+    const mid = new THREE.Vector3(...from).add(new THREE.Vector3(...to)).multiplyScalar(0.5);
+    tube.position.copy(mid);
+    tube.lookAt(new THREE.Vector3(...to));
+    tube.rotateX(Math.PI / 2);
+    scene.add(tube);
+  });
+
+  // Explosion particles
+  const expGeo = new THREE.BufferGeometry();
+  const expPos = [];
+  for (let i = 0; i < 40; i++) {
+    expPos.push(-3 + (Math.random()-0.5)*2, 3 + (Math.random()-0.5)*2, -5 + (Math.random()-0.5)*2);
+  }
+  expGeo.setAttribute('position', new THREE.Float32BufferAttribute(expPos, 3));
+  scene.add(new THREE.Points(expGeo, new THREE.PointsMaterial({ color: 0x00ff88, size: 0.15, transparent: true, opacity: 0.8 })));
+
+  addParticles(scene, 150, 35);
+
+}
+
+function buildIcon() {
+  camera.position.set(0, 3, 5);
+  camera.lookAt(0, 2, 0);
+
+  scene.background = new THREE.Color(0x0a0a2a);
+  scene.fog = null;
+
+  // Centered crosshair target
+  const targetGeo = new THREE.IcosahedronGeometry(1.2, 1);
+  const targetMat = new THREE.MeshStandardMaterial({
+    color: 0x00d4ff,
+    emissive: 0x00d4ff,
+    emissiveIntensity: 0.6,
+    metalness: 0.7,
+    roughness: 0.2,
+    wireframe: false
+  });
+  const target = new THREE.Mesh(targetGeo, targetMat);
+  target.position.set(0, 2, 0);
+  target.rotation.set(0.3, 0.5, 0.2);
+  scene.add(target);
+
+  // Wireframe overlay on target
+  const wireTarget = new THREE.Mesh(
+    new THREE.IcosahedronGeometry(1.25, 1),
+    new THREE.MeshBasicMaterial({ color: 0x00d4ff, wireframe: true, transparent: true, opacity: 0.3 })
+  );
+  wireTarget.position.copy(target.position);
+  wireTarget.rotation.copy(target.rotation);
+  scene.add(wireTarget);
+
+  // Crosshair rings
+  [1.8, 2.2].forEach((r, i) => {
+    const ringGeo = new THREE.TorusGeometry(r, 0.03, 8, 64);
+    const ringMat = new THREE.MeshBasicMaterial({ color: i === 0 ? 0x00d4ff : 0xff44aa, transparent: true, opacity: 0.6 });
+    const ring = new THREE.Mesh(ringGeo, ringMat);
+    ring.position.set(0, 2, 0.5);
+    scene.add(ring);
+  });
+
+  // Crosshair lines
+  const lineMat = new THREE.MeshBasicMaterial({ color: 0x00d4ff, transparent: true, opacity: 0.8 });
+  [
+    [[0, 3.5, 0.5], [0, 4.5, 0.5]],
+    [[0, 0.5, 0.5], [0, -0.5, 0.5]],
+    [[-1.5, 2, 0.5], [-2.5, 2, 0.5]],
+    [[1.5, 2, 0.5], [2.5, 2, 0.5]]
+  ].forEach(([from, to]) => {
+    const points = [new THREE.Vector3(...from), new THREE.Vector3(...to)];
+    const geo = new THREE.BufferGeometry().setFromPoints(points);
+    const mat = new THREE.LineBasicMaterial({ color: 0x00d4ff, linewidth: 2 });
+    scene.add(new THREE.Line(geo, mat));
+  });
+
+  // Small orbiting targets
+  const smallTypes = ['speed', 'heavy', 'blink'];
+  smallTypes.forEach((t, i) => {
+    const angle = (i / 3) * Math.PI * 2 + 0.3;
+    const r = 3;
+    const x = Math.cos(angle) * r;
+    const z = Math.sin(angle) * r;
+    const small = createTarget(t, x, 2 + Math.sin(i) * 0.5, z);
+    small.scale.setScalar(0.5);
+    scene.add(small);
+  });
+
+  // Lighting
+  scene.add(new THREE.AmbientLight(0x222244, 0.6));
+  const mainLight = new THREE.PointLight(0x00d4ff, 4, 20);
+  mainLight.position.set(0, 4, 3);
+  scene.add(mainLight);
+  scene.add(new THREE.PointLight(0xff44aa, 2, 15).translateX(3).translateY(3));
+  scene.add(new THREE.PointLight(0x00ff88, 2, 15).translateX(-3).translateY(3));
+
+  // Particle backdrop
+  const bgGeo = new THREE.BufferGeometry();
+  const bgPos = [];
+  for (let i = 0; i < 80; i++) {
+    bgPos.push((Math.random()-0.5)*10, Math.random()*6, (Math.random()-0.5)*8 - 2);
+  }
+  bgGeo.setAttribute('position', new THREE.Float32BufferAttribute(bgPos, 3));
+  scene.add(new THREE.Points(bgGeo, new THREE.PointsMaterial({ color: 0x4466ff, size: 0.08, transparent: true, opacity: 0.5 })));
+
+  // Floor hint
+  const floorGeo = new THREE.PlaneGeometry(10, 10, 10, 10);
+  const floorMat = new THREE.MeshBasicMaterial({ color: 0x00d4ff, wireframe: true, transparent: true, opacity: 0.08 });
+  const floor = new THREE.Mesh(floorGeo, floorMat);
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.y = -0.5;
+  scene.add(floor);
+}
+
+init();
+</script>
+</body>
+</html>

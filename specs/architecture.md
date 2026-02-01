@@ -524,6 +524,29 @@ Audio system có 49 procedural SFX methods nhưng thiếu music, reverb, UI soun
 - Negative: Extra shader passes add GPU cost — mitigated by combining vignette+grading into single pass
 - Risk: Procedural music may sound repetitive — mitigated by randomized phrase generation + multiple patterns
 
+### ADR-013: V22 3D Graphics Upgrade — Environment Maps, Floor Detail, Enhanced Muzzle Flash
+
+**Status:** Accepted
+**Date:** 2026-02-01
+
+**Context:**
+Game đã có post-processing pipeline tốt (bloom, vignette, color grading, ACES tone mapping) và GPU particles. Tuy nhiên materials còn "flat" — metallic surfaces thiếu reflections, sàn chỉ có flat color, muzzle flash chưa có light flash kèm particles. 3 upgrades này tăng visual quality đáng kể mà không ảnh hưởng performance trên Quest 2.
+
+**Decision:** 3 tasks:
+
+1. **Environment Map Reflections** — Procedural cubemap (PMREMGenerator) cho metallic materials. Sàn, pillars, weapons, targets có phản chiếu môi trường. Per-theme cubemap colors. Áp dụng qua scene.environment (Three.js built-in).
+2. **Floor Detail — Procedural Normal Map** — Canvas-generated normal map cho sàn: hex grid pattern, tile cracks, tech lines. Tăng chi tiết bề mặt mà không cần texture files. Per-theme normal patterns.
+3. **Enhanced Muzzle Flash** — GPU particle burst + dynamic point light flash on shoot. Light color matches weapon. 50ms duration, subtle nhưng impactful. Integrates with existing gpu-particles system.
+
+**Consequences:**
+- Positive: Metallic surfaces phản chiếu → chất lượng PBR tăng vượt bậc
+- Positive: Floor detail → arena feels "built" thay vì flat
+- Positive: Muzzle flash → shooting feels more impactful
+- Negative: Cubemap generation thêm ~100ms vào scene init
+- Negative: Normal map thêm 1 texture lookup per fragment cho floor
+- Risk: PMREMGenerator có thể chậm trên Quest 2 → mitigated: generate offline, cache
+- Risk: Dynamic light từ muzzle flash thêm shadow recalc → mitigated: no shadows on muzzle light
+
 ### ADR Template
 
 ```markdown

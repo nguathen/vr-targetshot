@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+body { margin: 0; background: #000; overflow: hidden; }
+canvas { display: block; }
+#info { position: absolute; top: 10px; left: 10px; color: #fff; font-family: monospace; z-index: 10; }
+</style>
+</head>
+<body>
+<div id="info"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// Screenshot Generator for VR Target Shooter
+// Renders 5 different game scenes
+
+let scene, camera, renderer;
+let currentScene = 0;
+
+const WIDTH = 2560;
+const HEIGHT = 1440;
+
+function init() {
+  renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+  renderer.setSize(WIDTH, HEIGHT);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.2;
+  document.body.appendChild(renderer.domElement);
+
+  const params = new URLSearchParams(window.location.search);
+  currentScene = parseInt(params.get('scene') || '1');
+  document.getElementById('info').style.display = 'none';
+
+  switch(currentScene) {
+    case 1: buildScene1_Gameplay(); break;
+    case 2: buildScene2_WeaponAction(); break;
+    case 3: buildScene3_BossRush(); break;
+    case 4: buildScene4_ArenaOverview(); break;
+    case 5: buildScene5_SurvivalMode(); break;
+    default: buildScene1_Gameplay();
+  }
+}
+
+// Shared helpers
+function createArena(scene) {
+  // Floor platform
+  const floorGeo = new THREE.PlaneGeometry(32, 32, 32, 32);
+  const floorMat = new THREE.MeshStandardMaterial({
+    color: 0x111122,
+    metalness: 0.8,
+    roughness: 0.3,
+    wireframe: false
+  });
+  const floor = new THREE.Mesh(floorGeo, floorMat);
+  floor.rotation.x = -Math.PI / 2;
+  floor.receiveShadow = true;
+  scene.add(floor);
+
+  // Wireframe overlay
+  const wireGeo = new THREE.PlaneGeometry(32, 32, 32, 32);
+  const wireMat = new THREE.MeshBasicMaterial({ color: 0x00d4ff, wireframe: true, transparent: true, opacity: 0.15 });
+  const wire = new THREE.Mesh(wireGeo, wireMat);
+  wire.rotation.x = -Math.PI / 2;
+  wire.position.y = 0.02;
+  scene.add(wire);
+
+  // Edge barriers
+  const barrierMat = new THREE.MeshStandardMaterial({
+    color: 0x0044ff,
+    transparent: true,
+    opacity: 0.15,
+    emissive: 0x0022aa,
+    emissiveIntensity: 0.5
+  });
+  const positions = [
+    { x: 0, z: -16, ry: 0 },
+    { x: 0, z: 16, ry: 0 },
+    { x: -16, z: 0, ry: Math.PI/2 },
+    { x: 16, z: 0, ry: Math.PI/2 }
+  ];
+  positions.forEach(p => {
+    const barrier = new THREE.Mesh(new THREE.PlaneGeometry(32, 6), barrierMat);
+    barrier.position.set(p.x, 3, p.z);
+    barrier.rotation.y = p.ry;
+    scene.add(barrier);
+
+    // Glowing base line
+    const lineGeo = new THREE.BoxGeometry(32, 0.05, 0.05);
+    const lineMat = new THREE.MeshBasicMaterial({ color: 0x00d4ff });
+    const line = new THREE.Mesh(lineGeo, lineMat);
+    line.position.set(p.x, 0.05, p.z);
+    line.rotation.y = p.ry;
+    scene.add(line);
+  });
+
+  // Corner pillars with orbs
+  const pillarColors = [0x4466ff, 0x00ff88, 0xff4444, 0xff44aa];
+  const corners = [
+    { x: -14, z: -14 },
+    { x: 14, z: -14 },
+    { x: -14, z: 14 },
+    { x: 14, z: 14 }
+  ];
+  corners.forEach((c, i) => {
+    const pillarGeo = new THREE.CylinderGeometry(0.3, 0.4, 8, 8);
+    const pillarMat = new THREE.MeshStandardMaterial({ color: 0x222233, metalness: 0.9, roughness: 0.2 });
+    const pillar = new THREE.Mesh(pillarGeo, pillarMat);
+    pillar.position.set(c.x, 4, c.z);
+    pillar.castShadow = true;
+    scene.add(pillar);
+
+    const orbGeo = new THREE.SphereGeometry(0.5, 16, 16);
+    const orbMat = new THREE.MeshBasicMaterial({ color: pillarColors[i] });
+    const orb = new THREE.Mesh(orbGeo, orbMat);
+    orb.position.set(c.x, 8.5, c.z);
+    scene.add(orb);
+
+    // Point light from orb
+    const light = new THREE.PointLight(pillarColors[i], 2, 20);
+    light.position.set(c.x, 8.5, c.z);
+    scene.add(light);
+  });
+
+  // Floor rings
+  const ringGeo = new THREE.TorusGeometry(5, 0.08, 8, 64);
+  const ringMat = new THREE.MeshBasicMaterial({ color: 0x00d4ff, transparent: true, opacity: 0.4 });
+  const ring1 = new THREE.Mesh(ringGeo, ringMat);
+  ring1.rotation.x = Math.PI / 2;
+  ring1.position.y = -0.5;
+  scene.add(ring1);
+
+  const ring2 = new THREE.Mesh(new THREE.TorusGeometry(8, 0.06, 8, 64), new THREE.MeshBasicMaterial({ color: 0x4466ff, transparent: true, opacity: 0.3 }));
+  ring2.rotation.x = Math.PI / 2;
+  ring2.position.y = -0.8;
+  scene.add(ring2);
+
+  // Ambient + directional
+  scene.add(new THREE.AmbientLight(0x222244, 0.5));
+  const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+  dirLight.position.set(5, 15, 5);
+  dirLight.castShadow = true;
+  scene.add(dirLight);
+
+  // Center light
+  const centerLight = new THREE.PointLight(0x4466ff, 3, 30);
+  centerLight.position.set(0, 6, 0);
+  scene.add(centerLight);
+
+  // Fog
+  scene.fog = new THREE.FogExp2(0x0a0a1a, 0.015);
+  scene.background = new THREE.Color(0x0a0a1a);
+}
+
+function createTarget(type, x, y, z) {
+  let geo, mat, mesh;
+  switch(type) {
+    case 'standard':
+      geo = new THREE.IcosahedronGeometry(0.6, 0);
+      mat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x00d4ff, emissiveIntensity: 0.3, metalness: 0.5, roughness: 0.3 });
+      break;
+    case 'speed':
+      geo = new THREE.OctahedronGeometry(0.5, 0);
+      mat = new THREE.MeshStandardMaterial({ color: 0xffaa00, emissive: 0xffaa00, emissiveIntensity: 0.4, metalness: 0.6, roughness: 0.2 });
+      break;
+    case 'heavy':
+      geo = new THREE.DodecahedronGeometry(0.7, 0);
+      mat = new THREE.MeshStandardMaterial({ color: 0xff4444, emissive: 0xff2222, emissiveIntensity: 0.3, metalness: 0.7, roughness: 0.2 });
+      break;
+    case 'bonus':
+      geo = new THREE.TorusGeometry(0.5, 0.15, 8, 16);
+      mat = new THREE.MeshStandardMaterial({ color: 0xffd700, emissive: 0xffd700, emissiveIntensity: 0.5, metalness: 0.8, roughness: 0.1 });
+      break;
+    case 'powerup':
+      geo = new THREE.TorusKnotGeometry(0.4, 0.12, 64, 8);
+      mat = new THREE.MeshStandardMaterial({ color: 0x00d4ff, emissive: 0x00d4ff, emissiveIntensity: 0.6, metalness: 0.5, roughness: 0.2 });
+      break;
+    case 'blink':
+      geo = new THREE.IcosahedronGeometry(0.5, 1);
+      mat = new THREE.MeshStandardMaterial({ color: 0xff44aa, emissive: 0xff44aa, emissiveIntensity: 0.5, metalness: 0.5, roughness: 0.2 });
+      break;
+    case 'boss':
+      geo = new THREE.DodecahedronGeometry(1.5, 1);
+      mat = new THREE.MeshStandardMaterial({ color: 0xff0000, emissive: 0xff4400, emissiveIntensity: 0.6, metalness: 0.8, roughness: 0.1 });
+      break;
+  }
+  mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(x, y, z);
+  mesh.castShadow = true;
+  // Random rotation
+  mesh.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+  return mesh;
+}
+
+function createHUD(scene, camera, options = {}) {
+  // HUD is rendered as a canvas texture on a plane in front of camera
+  const canvas = document.createElement('canvas');
+  canvas.width = 2560;
+  canvas.height = 1440;
+  const ctx = canvas.getContext('2d');
+
+  // Score
+  ctx.font = 'bold 64px monospace';
+  ctx.fillStyle = '#00ff88';
+  ctx.textAlign = 'left';
+  ctx.fillText('SCORE: ' + (options.score || '12,450'), 80, 100);
+
+  // Timer
+  ctx.fillStyle = '#ffaa00';
+  ctx.textAlign = 'right';
+  ctx.fillText(options.timer || '0:42', 2480, 100);
+
+  // Combo
+  if (options.combo) {
+    ctx.font = 'bold 96px monospace';
+    ctx.fillStyle = '#ff44aa';
+    ctx.textAlign = 'center';
+    ctx.fillText('COMBO x' + options.combo, 1280, 250);
+  }
+
+  // Lives
+  if (options.lives !== undefined) {
+    ctx.font = 'bold 48px monospace';
+    ctx.fillStyle = '#ff4444';
+    ctx.textAlign = 'left';
+    for (let i = 0; i < options.lives; i++) {
+      ctx.fillText('♥', 80 + i * 60, 180);
+    }
+  }
+
+  // Weapon
+  if (options.weapon) {
+    ctx.font = 'bold 44px monospace';
+    ctx.fillStyle = '#4466ff';
+    ctx.textAlign = 'right';
+    ctx.fillText(options.weapon, 2480, 180);
+  }
+
+  // Streak
+  if (options.streak) {
+    ctx.font = 'bold 40px monospace';
+    ctx.fillStyle = '#00d4ff';
+    ctx.textAlign = 'left';
+    ctx.fillText('STREAK: ' + options.streak, 80, 260);
+  }
+
+  // Accuracy
+  if (options.accuracy) {
+    ctx.font = '36px monospace';
+    ctx.fillStyle = '#aaaacc';
+    ctx.textAlign = 'right';
+    ctx.fillText('ACC: ' + options.accuracy + '%', 2480, 260);
+  }
+
+  // Boss health bar
+  if (options.bossHP !== undefined) {
+    ctx.fillStyle = '#220000';
+    ctx.fillRect(640, 1300, 1280, 40);
+    ctx.fillStyle = '#ff4444';
+    ctx.fillRect(640, 1300, 1280 * options.bossHP, 40);
+    ctx.strokeStyle = '#ff6666';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(640, 1300, 1280, 40);
+    ctx.font = 'bold 32px monospace';
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.fillText('BOSS', 1280, 1290);
+  }
+
+  // Crosshair
+  ctx.strokeStyle = '#00d4ff';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(1280, 720, 20, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.fillStyle = '#00d4ff';
+  ctx.beginPath();
+  ctx.arc(1280, 720, 3, 0, Math.PI * 2);
+  ctx.fill();
+  // Crosshair lines
+  ctx.beginPath();
+  ctx.moveTo(1280, 695); ctx.lineTo(1280, 705);
+  ctx.moveTo(1280, 735); ctx.lineTo(1280, 745);
+  ctx.moveTo(1255, 720); ctx.lineTo(1265, 720);
+  ctx.moveTo(1295, 720); ctx.lineTo(1305, 720);
+  ctx.stroke();
+
+  // Game mode label
+  if (options.mode) {
+    ctx.font = 'bold 36px monospace';
+    ctx.fillStyle = '#00d4ff';
+    ctx.textAlign = 'center';
+    ctx.globalAlpha = 0.7;
+    ctx.fillText(options.mode, 1280, 60);
+    ctx.globalAlpha = 1;
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  const hudGeo = new THREE.PlaneGeometry(25.6, 14.4);
+  const hudMat = new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthTest: false });
+  const hud = new THREE.Mesh(hudGeo, hudMat);
+  hud.renderOrder = 999;
+  // Position HUD in front of camera
+  hud.position.copy(camera.position);
+  const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+  hud.position.add(dir.multiplyScalar(15));
+  hud.lookAt(camera.position);
+  scene.add(hud);
+}
+
+function createLaserBeam(scene, from, to, color = 0x00d4ff) {
+  const points = [new THREE.Vector3(...from), new THREE.Vector3(...to)];
+  const geo = new THREE.BufferGeometry().setFromPoints(points);
+  const mat = new THREE.LineBasicMaterial({ color: color, linewidth: 2 });
+  const line = new THREE.Line(geo, mat);
+  scene.add(line);
+
+  // Glow tube
+  const dir = new THREE.Vector3(...to).sub(new THREE.Vector3(...from));
+  const len = dir.length();
+  const tubeGeo = new THREE.CylinderGeometry(0.03, 0.03, len, 8);
+  const tubeMat = new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: 0.4 });
+  const tube = new THREE.Mesh(tubeGeo, tubeMat);
+  const mid = new THREE.Vector3(...from).add(new THREE.Vector3(...to)).multiplyScalar(0.5);
+  tube.position.copy(mid);
+  tube.lookAt(new THREE.Vector3(...to));
+  tube.rotateX(Math.PI / 2);
+  scene.add(tube);
+}
+
+function createParticles(scene, pos, color, count = 30) {
+  const geo = new THREE.BufferGeometry();
+  const positions = [];
+  for (let i = 0; i < count; i++) {
+    positions.push(
+      pos[0] + (Math.random() - 0.5) * 2,
+      pos[1] + (Math.random() - 0.5) * 2,
+      pos[2] + (Math.random() - 0.5) * 2
+    );
+  }
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  const mat = new THREE.PointsMaterial({ color: color, size: 0.15, transparent: true, opacity: 0.8 });
+  const points = new THREE.Points(geo, mat);
+  scene.add(points);
+}
+
+function createController(scene, pos, rotation) {
+  // Simple VR controller representation
+  const group = new THREE.Group();
+  // Handle
+  const handleGeo = new THREE.CylinderGeometry(0.02, 0.025, 0.15, 8);
+  const handleMat = new THREE.MeshStandardMaterial({ color: 0x333344, metalness: 0.8, roughness: 0.3 });
+  const handle = new THREE.Mesh(handleGeo, handleMat);
+  group.add(handle);
+  // Ring
+  const ringGeo = new THREE.TorusGeometry(0.03, 0.005, 8, 16);
+  const ringMat = new THREE.MeshBasicMaterial({ color: 0x00d4ff });
+  const ring = new THREE.Mesh(ringGeo, ringMat);
+  ring.position.y = 0.06;
+  ring.rotation.x = Math.PI / 4;
+  group.add(ring);
+  // Laser
+  const laserGeo = new THREE.CylinderGeometry(0.003, 0.003, 20, 4);
+  const laserMat = new THREE.MeshBasicMaterial({ color: 0x00d4ff, transparent: true, opacity: 0.6 });
+  const laser = new THREE.Mesh(laserGeo, laserMat);
+  laser.position.z = -10;
+  laser.rotation.x = Math.PI / 2;
+  group.add(laser);
+
+  group.position.set(...pos);
+  if (rotation) group.rotation.set(...rotation);
+  scene.add(group);
+  return group;
+}
+
+// SCENE 1: Active Gameplay - Time Attack mode with multiple targets and combo
+function buildScene1_Gameplay() {
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(75, WIDTH / HEIGHT, 0.1, 100);
+  camera.position.set(0, 1.7, 0);
+  camera.lookAt(0, 2, -8);
+
+  createArena(scene);
+
+  // Targets scattered around
+  scene.add(createTarget('standard', -3, 3, -8));
+  scene.add(createTarget('standard', 4, 2.5, -10));
+  scene.add(createTarget('speed', -6, 4, -6));
+  scene.add(createTarget('heavy', 2, 1.5, -7));
+  scene.add(createTarget('bonus', 0, 5, -9));
+  scene.add(createTarget('blink', 7, 3, -5));
+  scene.add(createTarget('powerup', -5, 2, -12));
+
+  // Explosion particles on a hit target
+  createParticles(scene, [1, 3, -6], 0x00ff88, 50);
+  createParticles(scene, [1, 3, -6], 0x00d4ff, 30);
+
+  // Laser from controller to target
+  createLaserBeam(scene, [0.3, 1.2, -0.3], [1, 3, -6]);
+
+  // Controller
+  createController(scene, [0.3, 1.2, -0.3], [-0.3, -0.1, 0]);
+
+  createHUD(scene, camera, {
+    score: '12,450',
+    timer: '0:42',
+    combo: '7',
+    weapon: 'PISTOL',
+    streak: '12',
+    accuracy: '87',
+    mode: 'TIME ATTACK'
+  });
+
+  renderer.render(scene, camera);
+}
+
+// SCENE 2: Weapon switching - Sniper aimed at distant target
+function buildScene2_WeaponAction() {
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(75, WIDTH / HEIGHT, 0.1, 100);
+  camera.position.set(0, 1.7, 2);
+  camera.lookAt(3, 3, -10);
+
+  createArena(scene);
+
+  // Distant targets
+  scene.add(createTarget('standard', 3, 3, -12));
+  scene.add(createTarget('standard', -5, 4, -14));
+  scene.add(createTarget('heavy', 8, 2, -10));
+  scene.add(createTarget('speed', -2, 5, -11));
+  scene.add(createTarget('standard', 6, 3.5, -13));
+
+  // Sniper laser (longer, thinner)
+  createLaserBeam(scene, [0.3, 1.3, 1.7], [3, 3, -12], 0xff4444);
+
+  // Controller
+  createController(scene, [0.3, 1.3, 1.7], [-0.2, -0.3, 0]);
+
+  // Sniper scope effect - add a subtle vignette ring
+  const scopeGeo = new THREE.RingGeometry(0.8, 2, 32);
+  const scopeMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3, side: THREE.DoubleSide });
+  const scopeRing = new THREE.Mesh(scopeGeo, scopeMat);
+  scopeRing.position.set(3, 3, -3);
+  scopeRing.lookAt(camera.position);
+  scene.add(scopeRing);
+
+  createHUD(scene, camera, {
+    score: '8,200',
+    timer: '1:15',
+    combo: '3',
+    weapon: 'SNIPER (2x)',
+    streak: '5',
+    accuracy: '92',
+    mode: 'TIME ATTACK'
+  });
+
+  renderer.render(scene, camera);
+}
+
+// SCENE 3: Boss Rush - Large boss target with health bar
+function buildScene3_BossRush() {
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(75, WIDTH / HEIGHT, 0.1, 100);
+  camera.position.set(0, 1.7, 3);
+  camera.lookAt(0, 4, -8);
+
+  createArena(scene);
+
+  // Boss target (large)
+  const boss = createTarget('boss', 0, 4, -8);
+  scene.add(boss);
+
+  // Boss glow
+  const bossLight = new THREE.PointLight(0xff4400, 4, 15);
+  bossLight.position.set(0, 4, -8);
+  scene.add(bossLight);
+
+  // Small minion targets
+  scene.add(createTarget('standard', -4, 2.5, -6));
+  scene.add(createTarget('standard', 5, 3, -7));
+  scene.add(createTarget('speed', -3, 5, -10));
+
+  // Multiple lasers hitting boss
+  createLaserBeam(scene, [0.3, 1.3, 2.7], [0, 4, -8], 0x00d4ff);
+  createLaserBeam(scene, [-0.3, 1.2, 2.7], [-4, 2.5, -6], 0x00d4ff);
+
+  // Hit particles on boss
+  createParticles(scene, [0, 4, -8], 0xff4400, 60);
+  createParticles(scene, [0, 4, -8], 0xffaa00, 40);
+
+  // Both controllers
+  createController(scene, [0.3, 1.3, 2.7], [-0.2, 0, 0]);
+  createController(scene, [-0.3, 1.2, 2.7], [-0.15, 0.1, 0]);
+
+  // Extra dramatic lighting
+  const redLight = new THREE.PointLight(0xff0000, 2, 20);
+  redLight.position.set(5, 8, -5);
+  scene.add(redLight);
+
+  createHUD(scene, camera, {
+    score: '24,800',
+    timer: '',
+    combo: '5',
+    weapon: 'SMG',
+    lives: 4,
+    accuracy: '78',
+    mode: 'BOSS RUSH',
+    bossHP: 0.65
+  });
+
+  renderer.render(scene, camera);
+}
+
+// SCENE 4: Arena wide shot - panoramic view of the full arena
+function buildScene4_ArenaOverview() {
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(90, WIDTH / HEIGHT, 0.1, 100);
+  camera.position.set(-8, 8, 8);
+  camera.lookAt(0, 2, 0);
+
+  createArena(scene);
+
+  // Many targets filling the arena
+  scene.add(createTarget('standard', -3, 3, -5));
+  scene.add(createTarget('standard', 5, 2, -8));
+  scene.add(createTarget('speed', -7, 4, 2));
+  scene.add(createTarget('heavy', 3, 1.5, -3));
+  scene.add(createTarget('bonus', 0, 6, -6));
+  scene.add(createTarget('blink', 8, 3, -2));
+  scene.add(createTarget('powerup', -5, 2, -10));
+  scene.add(createTarget('standard', -2, 4, 4));
+  scene.add(createTarget('speed', 6, 5, -4));
+  scene.add(createTarget('heavy', -8, 2.5, -7));
+
+  // Player position indicator (controller lasers from center)
+  createLaserBeam(scene, [0.3, 1.5, 0], [-3, 3, -5], 0x00d4ff);
+  createLaserBeam(scene, [-0.3, 1.4, 0], [5, 2, -8], 0x00d4ff);
+
+  // Extra atmospheric particles
+  const starGeo = new THREE.BufferGeometry();
+  const starPositions = [];
+  for (let i = 0; i < 200; i++) {
+    starPositions.push(
+      (Math.random() - 0.5) * 40,
+      Math.random() * 15 + 2,
+      (Math.random() - 0.5) * 40
+    );
+  }
+  starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPositions, 3));
+  const starMat = new THREE.PointsMaterial({ color: 0x4466ff, size: 0.08, transparent: true, opacity: 0.5 });
+  scene.add(new THREE.Points(starGeo, starMat));
+
+  // Title overlay
+  const canvas = document.createElement('canvas');
+  canvas.width = 2560; canvas.height = 1440;
+  const ctx = canvas.getContext('2d');
+  ctx.font = 'bold 80px monospace';
+  ctx.fillStyle = '#00d4ff';
+  ctx.textAlign = 'center';
+  ctx.fillText('VR TARGET SHOOTER', 1280, 1320);
+  ctx.font = '40px monospace';
+  ctx.fillStyle = '#00ff88';
+  ctx.fillText('ARENA MODE', 1280, 1380);
+  const tex = new THREE.CanvasTexture(canvas);
+  const overlayGeo = new THREE.PlaneGeometry(25.6, 14.4);
+  const overlayMat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false });
+  const overlay = new THREE.Mesh(overlayGeo, overlayMat);
+  overlay.renderOrder = 999;
+  overlay.position.copy(camera.position);
+  const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+  overlay.position.add(dir.multiplyScalar(15));
+  overlay.lookAt(camera.position);
+  scene.add(overlay);
+
+  renderer.render(scene, camera);
+}
+
+// SCENE 5: Survival mode - intense with low lives, many targets
+function buildScene5_SurvivalMode() {
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(75, WIDTH / HEIGHT, 0.1, 100);
+  camera.position.set(0, 1.7, 1);
+  camera.lookAt(-2, 3, -7);
+
+  createArena(scene);
+
+  // Many targets - intense survival scenario
+  scene.add(createTarget('standard', -2, 3, -7));
+  scene.add(createTarget('standard', 4, 2, -9));
+  scene.add(createTarget('heavy', -6, 4, -5));
+  scene.add(createTarget('speed', 2, 1.5, -6));
+  scene.add(createTarget('speed', -4, 5, -8));
+  scene.add(createTarget('blink', 7, 3, -4));
+  scene.add(createTarget('standard', 0, 4.5, -11));
+  scene.add(createTarget('heavy', -8, 2, -10));
+
+  // Shield power-up active - cyan sphere around player
+  const shieldGeo = new THREE.SphereGeometry(1.5, 32, 32);
+  const shieldMat = new THREE.MeshBasicMaterial({ color: 0x00d4ff, transparent: true, opacity: 0.08, side: THREE.DoubleSide });
+  const shield = new THREE.Mesh(shieldGeo, shieldMat);
+  shield.position.set(0, 1.7, 1);
+  scene.add(shield);
+  const shieldWire = new THREE.Mesh(
+    new THREE.SphereGeometry(1.5, 16, 16),
+    new THREE.MeshBasicMaterial({ color: 0x00d4ff, transparent: true, opacity: 0.15, wireframe: true })
+  );
+  shieldWire.position.copy(shield.position);
+  scene.add(shieldWire);
+
+  // Laser
+  createLaserBeam(scene, [0.3, 1.3, 0.7], [-2, 3, -7]);
+
+  // Explosion on one target
+  createParticles(scene, [4, 2, -9], 0xff4444, 40);
+  createParticles(scene, [4, 2, -9], 0xffaa00, 25);
+
+  createController(scene, [0.3, 1.3, 0.7], [-0.25, 0.1, 0]);
+
+  // Danger - red tint at edges
+  const dangerLight = new THREE.PointLight(0xff0000, 1.5, 25);
+  dangerLight.position.set(0, 3, 0);
+  scene.add(dangerLight);
+
+  createHUD(scene, camera, {
+    score: '31,200',
+    timer: '',
+    combo: '4',
+    weapon: 'SHOTGUN',
+    lives: 1,
+    streak: '18',
+    accuracy: '74',
+    mode: 'SURVIVAL — SHIELD ACTIVE'
+  });
+
+  renderer.render(scene, camera);
+}
+
+init();
+window.SCENE_READY = true;
+</script>
+</body>
+</html>

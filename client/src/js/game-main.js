@@ -49,6 +49,7 @@ let _surgeHudTimer = null;
 window.__weaponSystem = weaponSystem;
 window.__hapticManager = hapticManager;
 window.__audioManager = audioManager;
+window.__getSettings = getSettings;
 
 export function startGame({ mode, weapon, theme, onReturnToMenu }) {
   if (mode) gameModeManager.select(mode);

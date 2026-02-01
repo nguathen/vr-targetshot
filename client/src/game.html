@@ -81,9 +81,11 @@
   <script src="./js/components/camera-effects.js"></script>
   <script src="./js/components/weapon-model.js"></script>
   <script src="./js/components/hand-shield.js"></script>
+  <script src="./js/components/env-reflections.js"></script>
 
   <a-scene id="game-scene" vr-mode-ui="enterVRButton: #enter-vr-custom" shadow="type: pcfsoft; autoUpdate: true"
-           bloom-effect="strength: 0.3; radius: 0.4; threshold: 0.7">
+           bloom-effect="strength: 0.3; radius: 0.4; threshold: 0.7"
+           env-reflections>
     <!-- Player Rig -->
     <a-entity id="player-rig" position="0 0 0" smooth-locomotion="speed: 3; camera: #camera">
       <a-camera id="camera" position="0 1.6 0" wasd-controls="acceleration: 20" look-controls camera-effects="shakeLevel: medium">

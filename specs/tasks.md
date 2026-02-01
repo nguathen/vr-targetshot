@@ -12,7 +12,7 @@
 |--------|-------|
 | In Progress | 0 |
 | Pending | 0 |
-| Completed | 111 |
+| Completed | 114 |
 
 > V1–V13 — all completed (68 tasks).
 > **V14 Content & QoL Upgrade (TASK-270~277)** — completed.
@@ -23,6 +23,101 @@
 > **V19 Adrenaline Surge (TASK-310~314)** — completed.
 > **V20 Visual & Interaction Upgrade (TASK-320~323)** — completed.
 > **V21 Audio & Visual Polish (TASK-330~333)** — completed.
+> **V22 3D Graphics Upgrade (TASK-340~342)** — completed.
+
+---
+
+## V22 — 3D Graphics Upgrade
+
+> **Goal:** Nâng cấp chất lượng đồ họa 3D: environment map reflections cho metallic surfaces, procedural normal map cho sàn, enhanced muzzle flash với GPU particles + dynamic light. Từ "flat materials" → polished reflective PBR look.
+
+## TASK-340: Environment Map Reflections
+**Priority:** High
+**Status:** Completed (2026-02-01)
+**Assigned:** /dev
+
+### Description
+Tạo procedural cubemap bằng PMREMGenerator cho metallic materials. Sàn, pillars, weapons, targets sẽ phản chiếu môi trường xung quanh. Per-theme cubemap colors matching theme palette. Áp dụng qua `scene.environment` (Three.js built-in, A-Frame object3D accessible).
+
+### Acceptance Criteria
+- [ ] Tạo `client/src/js/components/env-reflections.js` — A-Frame component
+- [ ] **Procedural cubemap generation** bằng PMREMGenerator:
+  - Tạo simple scene (gradient sky + colored lights matching theme) → render to cubemap
+  - Apply vào `this.el.object3D.environment` để tất cả PBR materials tự nhận reflection
+  - Generate 1 lần khi scene init, cache kết quả
+- [ ] **Per-theme cubemap** — listen `theme-changed` event:
+  - Cyber: dark blue sky, neon accent lights (blue/pink)
+  - Sunset: warm orange/red gradient, golden highlights
+  - Space: deep black, blue/purple nebula tints
+  - Underwater: teal/cyan ambient, caustic-like patterns
+  - Neon: saturated magenta/cyan highlights
+  - Day: bright neutral white/blue sky
+- [ ] **Selective application**: Override `envMapIntensity` per material type:
+  - Floor: 0.3 (subtle reflection)
+  - Pillars/barriers: 0.5
+  - Weapons: 0.7 (shiny)
+  - Targets: 0.4
+- [ ] Register component: `<a-scene env-reflections>`
+- [ ] Performance: Cubemap resolution 128x128 (đủ cho diffuse reflection). Generation < 100ms
+- [ ] Quest 2 safe: PMREMGenerator sử dụng existing WebGL context, không thêm render target
+- [ ] Settings: `settings.reflections` (on/off). Off = skip cubemap generation
+
+---
+
+## TASK-341: Floor Detail — Procedural Normal Map
+**Priority:** Medium
+**Status:** Completed (2026-02-01)
+**Assigned:** /dev
+
+### Description
+Canvas-generated normal map cho sàn arena. Tạo hex grid / tech line pattern bằng 2D canvas, convert thành Three.js texture, apply vào floor material. Tăng chi tiết bề mặt mà không cần external texture files. Per-theme patterns.
+
+### Acceptance Criteria
+- [ ] Tạo function `generateFloorNormalMap(theme)` trong `env-reflections.js` hoặc `environment-themes.js`
+- [ ] **Canvas-generated normal map** (512x512):
+  - Cyber: hex grid pattern + circuit traces
+  - Sunset: cracked earth / stone tiles
+  - Space: metal panel seams + rivet dots
+  - Underwater: sandy ripple pattern
+  - Neon: glowing grid lines (stronger normals at grid intersections)
+  - Day: subtle concrete texture
+- [ ] **Apply to floor**: Modify floor material trong `environment-themes.js`:
+  - Set `normalMap` property
+  - `normalScale` = new THREE.Vector2(0.3, 0.3) — subtle, not overwhelming
+  - Tiling: `repeat.set(8, 8)` cho tiled pattern
+- [ ] **Roughness map** (optional bonus): Use same canvas to vary roughness — grid lines slightly smoother than panels
+- [ ] Generate once per theme change, cache canvas textures
+- [ ] Performance: Canvas generation < 50ms, single texture lookup per fragment
+- [ ] Settings: `settings.floorDetail` (on/off). Off = flat floor (current behavior)
+
+---
+
+## TASK-342: Enhanced Muzzle Flash
+**Priority:** Medium
+**Status:** Completed (2026-02-01)
+**Assigned:** /dev
+
+### Description
+Nâng cấp muzzle flash khi bắn: GPU particle burst từ weapon tip + dynamic point light flash. Sử dụng existing gpu-particles system (`window.__spawnGPUBurst`). Thêm temporary point light (50ms) tại weapon tip, color matches weapon laser color.
+
+### Acceptance Criteria
+- [ ] **Muzzle particle burst** trong `shoot-controls.js` khi fire:
+  - Gọi `window.__spawnGPUBurst` với preset 'muzzle' tại weapon tip position
+  - 8-12 particles, 80ms lifetime, weapon color
+  - Spread: small cone forward (0.3 spread)
+  - Size: 0.02-0.04
+- [ ] **Dynamic point light** flash:
+  - Tạo `THREE.PointLight` attach vào weapon tip
+  - Color = weapon laserColor, intensity = 2.0, distance = 3
+  - Duration: 50ms → fade to 0 over 30ms
+  - castShadow = false (performance)
+  - Reuse single light object, don't create/destroy per shot
+- [ ] **Rate limiting**: Max 1 flash every 80ms (prevent strobe effect with SMG/auto-fire)
+- [ ] **Visual tuning**: Flash noticeable nhưng not distracting. Phải visible trong cả bright và dark themes
+- [ ] Integrate: Modify `shoot-controls.js` hoặc `weapon-model.js`
+- [ ] Performance: Single reused PointLight, no shadow recalculation
+- [ ] Settings: `settings.muzzleFlash` (on/off). Off = no particles, no light (current behavior)
+- [ ] Quest 2: Test light doesn't cause frame drops (no shadows = safe)
 
 ---
 
@@ -281,6 +376,9 @@ Thêm hand tracking support cho Quest 2/3. Sử dụng A-Frame `hand-tracking-co
 
 | Task | Title | Completed |
 |------|-------|-----------|
+| TASK-340 | Environment Map Reflections | 2026-02-01 |
+| TASK-341 | Floor Detail — Procedural Normal Map | 2026-02-01 |
+| TASK-342 | Enhanced Muzzle Flash | 2026-02-01 |
 | TASK-320 | GPU Particle System | 2026-02-01 |
 | TASK-321 | 3D Target Models (GLTF) | 2026-02-01 |
 | TASK-322 | Dissolve Shader Effect | 2026-02-01 |

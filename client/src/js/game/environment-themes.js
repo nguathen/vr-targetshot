@@ -457,6 +457,9 @@ function applyTheme(sceneEl, themeId) {
       apContainer.appendChild(ap);
     }
   }
+
+  // Notify components (env-reflections, bloom-effect) of theme change
+  document.dispatchEvent(new CustomEvent('theme-changed', { detail: { theme: themeId } }));
 }
 
 function getThemes() {
