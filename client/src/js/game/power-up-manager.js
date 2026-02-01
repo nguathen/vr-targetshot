@@ -4,6 +4,9 @@ const POWER_UPS = {
   doublePoints: { duration: 10000, color: '#00ff88', icon: '2X', label: 'DOUBLE POINTS!' },
   freezeTime:   { duration: 5000,  color: '#00d4ff', icon: '\u2744', label: 'TIME FREEZE!' },
   multiShot:    { duration: 10000, color: '#ff44aa', icon: '\u00d73', label: 'MULTI-SHOT!' },
+  shield:       { duration: 15000, color: '#4488ff', icon: '🛡️', label: 'SHIELD!' },
+  magnet:       { duration: 5000,  color: '#ff88ff', icon: '🧲', label: 'MAGNET!' },
+  slowField:    { duration: 8000,  color: '#88ff88', icon: '🐌', label: 'SLOW FIELD!' },
 };
 
 const POWER_UP_KEYS = Object.keys(POWER_UPS);
@@ -68,6 +71,28 @@ class PowerUpManager {
 
   isTimeFrozen() {
     return this._active.has('freezeTime');
+  }
+
+  hasShield() {
+    return this._active.has('shield');
+  }
+
+  consumeShield() {
+    if (!this._active.has('shield')) return false;
+    this.deactivate('shield');
+    return true;
+  }
+
+  hasMagnet() {
+    return this._active.has('magnet');
+  }
+
+  hasSlowField() {
+    return this._active.has('slowField');
+  }
+
+  getSpeedMultiplier() {
+    return this._active.has('slowField') ? 0.5 : 1.0;
   }
 
   activateRandom() {

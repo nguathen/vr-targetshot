@@ -50,6 +50,41 @@ const WEAPONS = {
     unlockLevel: 5,
     sound: 'sniper',
   },
+  smg: {
+    id: 'smg',
+    name: 'SMG',
+    description: '3-round burst, rapid fire',
+    icon: '🔥',
+    damage: 1,
+    fireRate: 400,        // 400ms between bursts
+    spread: 0.08,
+    projectiles: 1,
+    burstCount: 3,        // 3-round burst
+    burstDelay: 100,      // 100ms between burst shots
+    laserColor: '#ff6622',
+    laserOpacity: 0.65,
+    hapticIntensity: 0.25,
+    hapticDuration: 30,
+    unlockLevel: 7,
+    sound: 'smg',
+  },
+  railgun: {
+    id: 'railgun',
+    name: 'Railgun',
+    description: 'Charge to fire, massive damage',
+    icon: '⚡',
+    damage: 1,            // scales 1-3x with charge
+    fireRate: 2000,
+    spread: 0,
+    projectiles: 1,
+    chargeTime: 1500,     // 1.5s for full charge
+    laserColor: '#4488ff',
+    laserOpacity: 0.9,
+    hapticIntensity: 1.0,
+    hapticDuration: 120,
+    unlockLevel: 12,
+    sound: 'railgun',
+  },
 };
 
 class WeaponSystem {
@@ -80,6 +115,27 @@ class WeaponSystem {
     if (!this.canFire()) return null;
     this._lastFireTime = Date.now();
     const weapon = this.current;
+
+    // SMG burst: schedule 3 rapid shots
+    if (weapon.burstCount > 1) {
+      audioManager.playWeaponFire(weapon.sound);
+      for (let i = 1; i < weapon.burstCount; i++) {
+        setTimeout(() => {
+          audioManager.playWeaponFire(weapon.sound);
+          document.dispatchEvent(new CustomEvent('smg-burst-shot', { detail: { index: i } }));
+        }, weapon.burstDelay * i);
+      }
+      return weapon;
+    }
+
+    // Railgun: damage based on charge level
+    if (weapon.chargeTime) {
+      audioManager.playWeaponFire(weapon.sound);
+      const charge = this._chargeLevel || 1;
+      this._chargeLevel = 0;
+      return { ...weapon, damage: charge };
+    }
+
     audioManager.playWeaponFire(weapon.sound);
 
     // Multi-shot power-up: widen spread for single-shot weapons
@@ -88,6 +144,28 @@ class WeaponSystem {
       return { ...weapon, projectiles: puMultiplier, spread: 0.12 };
     }
     return weapon;
+  }
+
+  // Railgun charge management
+  startCharge() {
+    const weapon = this.current;
+    if (!weapon.chargeTime) return;
+    this._chargeStart = Date.now();
+    this._chargeLevel = 0;
+  }
+
+  updateCharge() {
+    const weapon = this.current;
+    if (!weapon.chargeTime || !this._chargeStart) return 0;
+    const elapsed = Date.now() - this._chargeStart;
+    this._chargeLevel = Math.min(3, 1 + (elapsed / weapon.chargeTime) * 2);
+    return this._chargeLevel;
+  }
+
+  releaseCharge() {
+    const level = this._chargeLevel || 1;
+    this._chargeStart = 0;
+    return level;
   }
 
   isUnlocked(weaponId, playerLevel) {

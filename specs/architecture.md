@@ -390,6 +390,140 @@ Score + Retry         Item → Save
 - Negative: Need to run `npm install` in both directories (mitigated by `npm run install:all`)
 - Note: A-Frame components in `client/src/js/components/` must be synced to `client/public/js/components/` before build (handled by `quest-deploy.ps1`)
 
+### ADR-008: V13 Environment Upgrade — Weather, Destruction, Reactions, Underwater Theme
+**Status:** Accepted
+**Date:** 2026-01-31
+
+**Context:** Game đã có gameplay mechanics phong phú (V11-V12) nhưng không gian ảo còn tĩnh. Cần môi trường phản ứng với gameplay và thêm variety cho themes.
+
+**Decision:** 4 upgrades:
+1. Weather System (rain/dust per theme, object-pooled particles)
+2. Destructible Environment (impact marks on miss shots)
+3. Arena Reactions (lights/shake respond to gameplay events)
+4. Underwater Theme (3rd complete environment, unlock level 10)
+
+**Consequences:**
+- Positive: Immersion tăng đáng kể, arena "sống" thay vì tĩnh
+- Positive: Tận dụng particle/audio system đã có
+- Positive: Thêm progression goal (level 10 unlock)
+- Negative: Thêm ~100 particles (weather) — cần object pool
+- Risk: Motion sickness nếu screen shake quá mạnh → keep subtle
+- Mitigation: All effects có toggle/intensity control
+
+### ADR-009: V14 Content & Quality-of-Life Upgrade
+**Status:** Accepted
+**Date:** 2026-01-31
+
+**Context:** Game có 68 completed tasks, gameplay rất phong phú. Tuy nhiên content variety còn hạn chế (3 weapons, 3 power-ups, 15 achievements) và thiếu accessibility/QoL features.
+
+**Decision:** 8 upgrades chia 2 nhóm:
+
+**Content Expansion:**
+1. New Weapons — SMG (burst-fire 3-round) + Railgun (charge-shot, high damage)
+2. New Power-ups — Shield (absorb 1 hit), Magnet (auto-attract nearby targets), Slow-Mo (slow target movement)
+3. More Achievements — 10 new (accuracy, weapon mastery, mode-specific, streak-based)
+4. Progressive Difficulty — Survival mode scales spawn rate/speed over time
+
+**Quality-of-Life:**
+5. Colorblind Mode — 3 presets (protanopia, deuteranopia, tritanopia) with target shape+pattern differentiation
+6. Detailed Stats — Track accuracy trends, playtime, longest streaks, per-weapon stats
+7. Difficulty Presets — Easy/Normal/Hard modifiers on existing modes
+8. Seasonal Events — Weekly rotating challenge with bonus XP/coins
+
+**Consequences:**
+- Positive: Double weapon variety (3→5), power-up variety (3→6)
+- Positive: Accessibility compliance (colorblind support)
+- Positive: Deeper progression (25 achievements, difficulty tiers)
+- Positive: Retention (seasonal events, stats tracking)
+- Negative: More balance tuning needed for new weapons
+- Risk: SMG burst might feel too powerful → cap damage per burst
+- Mitigation: All new content follows existing unlock-level gating
+
+### ADR-010: V15 Production Hardening & UX Polish
+
+**Status:** Accepted
+**Date:** 2026-01-31
+
+**Context:**
+Game has excellent single-player content (5 weapons, 6 power-ups, 4 modes, 3 themes, 25 achievements, weekly challenges). However, production infrastructure and onboarding UX are lacking — no offline support, no error handling, no loading tips, no weapon-specific tutorials, no first-unlock tooltips, no per-weapon detailed stats.
+
+**Decision:**
+V15 splits into Tier 1 (Production-Ready) and Tier 2 (UX Polish):
+
+**Tier 1 — Production-Ready:**
+1. **Service Worker + Offline Cache** — Cache A-Frame, game assets, enable offline play with localStorage profile. Register SW in all HTML pages.
+2. **Global Error Handling** — window.onerror + unhandledrejection → user-friendly error overlay with retry. WebXR session loss recovery.
+3. **Loading Screen Tips** — Randomized gameplay tips during page load + scene initialization. Progress indicator.
+
+**Tier 2 — UX Polish:**
+4. **Weapon Tutorial Expansion** — Add weapon-specific tutorial steps: shotgun spread, sniper precision, SMG burst timing, railgun charge. Triggered on first weapon unlock.
+5. **First-Unlock Tooltips** — VR popup when unlocking weapon/mode/skin for first time. Shows name + description + "Try it!" prompt.
+6. **Per-Weapon Detailed Stats** — Track per-weapon: kills, accuracy, best score. Display in stats dashboard with weapon breakdown section.
+
+**Consequences:**
+- Positive: Playable offline on Quest, crash-resilient, better new-player experience
+- Negative: Service worker adds complexity to deployment (cache invalidation)
+- Risks: SW cache staleness — mitigated with version-based cache busting
+
+### ADR-011: V20 Visual & Interaction Upgrade — Hand Tracking, 3D Models, GPU Particles, Dissolve FX
+
+**Status:** Accepted
+**Date:** 2026-02-01
+
+**Context:**
+Game đã rất mature (103 tasks, V1-V19) nhưng visuals vẫn dùng primitive geometries (icosahedron, sphere, etc.) và manual entity-spawning cho particles. A-Frame ecosystem có sẵn nhiều components mạnh chưa được tận dụng. Quest 3 users ngày càng prefer hand tracking thay vì controllers.
+
+**Decision:** 4 upgrades chia 2 tier:
+
+**Tier 1 — Visual Overhaul:**
+1. **GPU Particle System** — Replace manual entity spawning bằng `aframe-particle-system-component`. GPU-accelerated, hỗ trợ 5000+ particles cho rain, explosions, muzzle flash, target trails
+2. **3D Target Models (GLTF)** — Replace primitive geometries bằng low-poly GLTF models cho targets (robot drone, crystal, skull debuff, etc.). Weapon models upgrade từ procedural → GLTF
+3. **Dissolve Shader Effect** — Custom shader cho target destruction: Perlin noise dissolve thay vì instant remove. Áp dụng cho tất cả target types
+
+**Tier 2 — Interaction:**
+4. **Hand Tracking Controls** — `hand-tracking-controls` component cho Quest 2/3. Pinch-to-shoot, hand raise to pause, gesture reload. Fallback graceful cho controller users
+
+**Consequences:**
+- Positive: Visual quality jump lớn — từ prototype look → polished game
+- Positive: GPU particles giải phóng main thread, cho phép nhiều particles hơn (100→5000+)
+- Positive: Hand tracking mở rộng audience (no-controller play)
+- Positive: GLTF models cho phép community contribute assets
+- Negative: GLTF models tăng initial load size (~2-5MB) — mitigated by lazy loading + SW cache
+- Negative: Hand tracking accuracy thấp hơn controllers — mitigated by larger hit targets in hand mode
+- Risk: Dissolve shader có thể gây performance drop trên Quest 2 — mitigated by LOD/fallback to instant remove
+- Risk: `aframe-particle-system-component` dependency — mitigated by vendoring
+
+**Alternatives Considered:**
+1. Three.js Points (raw) — rejected: too low-level, A-Frame component wraps nicely
+2. Babylon.js migration — rejected: too disruptive, A-Frame ecosystem đủ mạnh
+3. Full environment component — deferred to V21: cần evaluate performance trên Quest 2 trước
+
+### ADR-012: V21 Audio & Visual Polish — Dynamic Music, Reverb, Vignette, Color Grading
+
+**Status:** Accepted
+**Date:** 2026-02-01
+
+**Context:**
+Audio system có 49 procedural SFX methods nhưng thiếu music, reverb, UI sounds. Post-processing chỉ có bloom 4-pass, thiếu vignette, damage flash, color grading. Game "sounds flat" và "looks uniform" across themes.
+
+**Decision:** 4 tasks:
+
+**Tier 1 — Audio:**
+1. **Dynamic Music System** — Procedural adaptive music bằng Web Audio API oscillators + gain layers. 4 intensity layers (ambient → combat → frenzy → boss) crossfade theo gameplay state. Per-theme tonal palette. No audio files.
+2. **Audio Polish** — Add ConvolverNode reverb (procedural impulse response), UI sounds (hover, click, toggle), dissolve SFX, missing feedback sounds. Expose reverb settings.
+
+**Tier 2 — Visual:**
+3. **Vignette & Damage Flash** — Extend bloom-effect pipeline: vignette darkening (adjustable), red damage flash overlay, low-HP pulsing vignette. Single extra shader pass.
+4. **Color Grading & Tone Mapping** — Per-theme color grading (cyber=cool blue, sunset=warm orange, space=desaturated, underwater=teal). ACES tone mapping. Exposure control. Integrated into composite pass.
+
+**Consequences:**
+- Positive: Music adds emotional depth — procedural = zero download overhead
+- Positive: Reverb gives spatial depth to all existing SFX
+- Positive: Vignette + color grading = each theme feels visually distinct
+- Negative: Music oscillators add CPU load — mitigated by limiting to 8 concurrent oscillators
+- Negative: Extra shader passes add GPU cost — mitigated by combining vignette+grading into single pass
+- Risk: Procedural music may sound repetitive — mitigated by randomized phrase generation + multiple patterns
+
 ### ADR Template
 
 ```markdown

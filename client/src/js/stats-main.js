@@ -1,6 +1,8 @@
 import authManager from './core/auth-manager.js';
 import { GAME_MODES } from './game/game-modes.js';
 import { WEAPONS } from './game/weapon-system.js';
+import { getRank } from './game/rank-system.js';
+import { ACHIEVEMENTS } from './game/achievements.js';
 
 function initStats(profile) {
   const transition = document.getElementById('transition');
@@ -20,13 +22,27 @@ function initStats(profile) {
 
 function buildSummary(profile) {
   const container = document.getElementById('stats-summary');
+  const shotsFired = profile.totalShotsFired || 0;
+  const targetsHit = profile.totalTargetsHit || 0;
+  const accuracy = shotsFired > 0 ? Math.round((targetsHit / shotsFired) * 100) : 0;
+  const playTimeSec = profile.totalPlayTime || 0;
+  const playTimeMin = Math.floor(playTimeSec / 60);
+  const achievementCount = (profile.achievements || []).length;
+  const rank = getRank(profile.totalXp || 0);
   const items = [
-    { label: 'Games', value: profile.gamesPlayed || 0 },
-    { label: 'Targets Hit', value: profile.totalTargetsHit || 0 },
-    { label: 'Best Combo', value: `x${profile.bestCombo || 0}` },
-    { label: 'Total XP', value: profile.totalXp || 0 },
+    { label: 'Rank', value: `${rank.icon} ${rank.tier}` },
     { label: 'Level', value: profile.level || 1 },
+    { label: 'Games', value: profile.gamesPlayed || 0 },
+    { label: 'Targets Hit', value: targetsHit },
+    { label: 'Accuracy', value: `${accuracy}%` },
+    { label: 'Best Combo', value: `x${profile.bestCombo || 0}` },
+    { label: 'Play Time', value: `${playTimeMin}m` },
+    { label: 'Total XP', value: profile.totalXp || 0 },
     { label: 'Coins', value: profile.coins || 0 },
+    { label: 'Achievements', value: `${achievementCount}/${ACHIEVEMENTS.length}` },
+    { label: 'Best Reaction', value: profile.bestReactionTime ? `${profile.bestReactionTime}ms` : '—' },
+    { label: 'Avg Reaction', value: profile.avgReactionTime ? `${profile.avgReactionTime}ms` : '—' },
+    { label: 'Peripheral Hits', value: profile.peripheralHits || 0 },
   ];
   items.forEach(item => {
     const el = document.createElement('div');
@@ -60,7 +76,8 @@ function buildModes(profile) {
     left.textContent = `${mode.icon} ${mode.name}`;
     const right = document.createElement('span');
     right.className = 'hs-value';
-    right.textContent = `Best: ${score} | ${games} games`;
+    const modeAcc = ms.shots > 0 ? Math.round((ms.hits || 0) / ms.shots * 100) : 0;
+    right.textContent = `Best: ${score} | ${games} games | ${modeAcc}% acc`;
     row.appendChild(left);
     row.appendChild(right);
     container.appendChild(row);
@@ -78,9 +95,18 @@ function buildWeapons(profile) {
   const container = document.getElementById('stats-weapons');
   const usage = profile.weaponUsage || {};
 
+  const pws = profile.perWeaponStats || {};
+
   Object.values(WEAPONS).forEach(weapon => {
     const games = usage[weapon.id] || 0;
-    if (games === 0) return;
+    const ws = pws[weapon.id] || {};
+    if (games === 0 && !ws.games) return;
+
+    const totalGames = ws.games || games;
+    const kills = ws.kills || 0;
+    const shots = ws.shots || 0;
+    const acc = shots > 0 ? Math.round((kills / shots) * 100) : 0;
+    const best = ws.bestScore || 0;
 
     const row = document.createElement('div');
     row.className = 'high-score-row';
@@ -88,7 +114,7 @@ function buildWeapons(profile) {
     left.textContent = `${weapon.icon} ${weapon.name}`;
     const right = document.createElement('span');
     right.className = 'hs-value';
-    right.textContent = `${games} games`;
+    right.textContent = `${totalGames}g | ${kills} kills | ${acc}% | Best: ${best}`;
     row.appendChild(left);
     row.appendChild(right);
     container.appendChild(row);

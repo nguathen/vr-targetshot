@@ -8,6 +8,24 @@
   <link rel="stylesheet" href="./css/style.css">
 </head>
 <body>
+  <div id="loading-screen" style="position:fixed;inset:0;z-index:99990;background:#0a0a1a;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;font-family:monospace;transition:opacity 0.4s">
+    <div style="font-size:28px;margin-bottom:16px;color:#00ff88">Loading Arena...</div>
+    <div style="width:120px;height:3px;background:#222;border-radius:2px;overflow:hidden;margin-bottom:16px">
+      <div id="loading-bar" style="width:0%;height:100%;background:#00ff88;transition:width 0.3s"></div>
+    </div>
+    <div id="loading-tip" style="font-size:13px;opacity:0.6;max-width:300px;text-align:center"></div>
+  </div>
+  <script>
+  (function(){
+    var tips=["Aim for combos — x5 multiplier at 5 hits!","Dodge red projectiles — they hurt!","Punch melee targets with your fists","Hit rhythm targets on the beat","Lean to dodge laser sweeps","Shield absorbs one hit","Magnet pulls targets toward you","Try different weapons for each mode","Weekly challenges give bonus XP"];
+    var el=document.getElementById('loading-tip');if(el)el.textContent=tips[Math.floor(Math.random()*tips.length)];
+    var bar=document.getElementById('loading-bar');var p=10;
+    var iv=setInterval(function(){p=Math.min(p+Math.random()*15,90);if(bar)bar.style.width=p+'%';},300);
+    function dismiss(){clearInterval(iv);if(bar)bar.style.width='100%';var ls=document.getElementById('loading-screen');if(ls){setTimeout(function(){ls.style.opacity='0';setTimeout(function(){ls.remove();},400);},200);}}
+    var sc=document.querySelector('a-scene');if(sc){if(sc.hasLoaded)dismiss();else sc.addEventListener('loaded',dismiss);}else{window.addEventListener('load',dismiss);}
+    setTimeout(dismiss,8000);
+  })();
+  </script>
   <div id="transition" class="transition"></div>
 
   <!-- Game Over overlay -->
@@ -61,9 +79,11 @@
   <script src="./js/components/target-hit.js"></script>
   <script src="./js/components/bloom-effect.js"></script>
   <script src="./js/components/camera-effects.js"></script>
+  <script src="./js/components/weapon-model.js"></script>
+  <script src="./js/components/hand-shield.js"></script>
 
   <a-scene id="game-scene" vr-mode-ui="enterVRButton: #enter-vr-custom" shadow="type: pcfsoft; autoUpdate: true"
-           bloom-effect="strength: 0.6; radius: 0.4; threshold: 0.7">
+           bloom-effect="strength: 0.3; radius: 0.4; threshold: 0.7">
     <!-- Player Rig -->
     <a-entity id="player-rig" position="0 0 0" smooth-locomotion="speed: 3; camera: #camera">
       <a-camera id="camera" position="0 1.6 0" wasd-controls="acceleration: 20" look-controls camera-effects="shakeLevel: medium">
@@ -102,7 +122,8 @@
                 oculus-touch-controls="hand: left"
                 laser-controls="hand: left; model: false"
                 raycaster="objects: .target; far: 50; lineColor: #44aaff; lineOpacity: 0.5"
-                shoot-controls="hand: left">
+                shoot-controls="hand: left"
+                hand-shield>
       </a-entity>
 
       <!-- Right controller -->
@@ -110,7 +131,8 @@
                 oculus-touch-controls="hand: right"
                 laser-controls="hand: right; model: false"
                 raycaster="objects: .target; far: 50; lineColor: #ff4444; lineOpacity: 0.7"
-                shoot-controls="hand: right">
+                shoot-controls="hand: right"
+                weapon-model>
       </a-entity>
     </a-entity>
 
@@ -157,5 +179,6 @@
   </a-scene>
 
   <script type="module" src="./js/game-main.js"></script>
+<script>if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});</script>
 </body>
 </html>

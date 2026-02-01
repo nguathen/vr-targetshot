@@ -51,6 +51,20 @@ const GAME_MODES = {
     xpMultiplier: 2.0,
     unlockLevel: 8,
   },
+  reflexRush: {
+    id: 'reflexRush',
+    name: 'Reflex Rush',
+    description: '1 target at a time — speed gets faster!',
+    icon: '⚡',
+    duration: Infinity,
+    lives: 3,
+    spawnInterval: 800,
+    maxTargets: 1,
+    targetLifetime: 2000,
+    xpMultiplier: 1.8,
+    unlockLevel: 3,
+    reflexMode: true,
+  },
 };
 
 class GameModeManager {

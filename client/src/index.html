@@ -8,6 +8,54 @@
   <link rel="stylesheet" href="./css/style.css">
 </head>
 <body>
+  <div id="loading-screen" style="position:fixed;inset:0;z-index:99990;background:#0a0a1a;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;font-family:monospace;transition:opacity 0.4s">
+    <div style="font-size:28px;margin-bottom:16px;color:#00ff88">VR Quest</div>
+    <div style="width:120px;height:3px;background:#222;border-radius:2px;overflow:hidden;margin-bottom:16px">
+      <div id="loading-bar" style="width:0%;height:100%;background:#00ff88;transition:width 0.3s"></div>
+    </div>
+    <div id="loading-tip" style="font-size:13px;opacity:0.6;max-width:300px;text-align:center"></div>
+  </div>
+  <script>
+  (function(){
+    var tips=[
+      "Aim for combos — x5 multiplier at 5 hits!",
+      "Power-up targets glow green — shoot them for buffs",
+      "Shotgun is great for grouped targets",
+      "Sniper gives 2x damage — aim carefully",
+      "SMG fires 3-round bursts — tap fast!",
+      "Hold trigger to charge Railgun for massive damage",
+      "Shield power-up blocks one hit",
+      "Magnet auto-pulls nearby targets to you",
+      "Slow Field halves all target movement",
+      "Dodge red projectiles — they hurt!",
+      "Punch glowing melee targets with your fists",
+      "Hit rhythm targets on the beat for bonus points",
+      "Lean left/right to dodge laser sweeps",
+      "Boss Rush gets harder every 5 waves",
+      "Weekly challenges give bonus XP — check the banner!",
+      "Try Hard difficulty for 2x the challenge"
+    ];
+    var el=document.getElementById('loading-tip');
+    if(el)el.textContent=tips[Math.floor(Math.random()*tips.length)];
+    var bar=document.getElementById('loading-bar');
+    var p=10;
+    var iv=setInterval(function(){p=Math.min(p+Math.random()*15,90);if(bar)bar.style.width=p+'%';},300);
+    function dismiss(){
+      clearInterval(iv);
+      if(bar)bar.style.width='100%';
+      var ls=document.getElementById('loading-screen');
+      if(ls){setTimeout(function(){ls.style.opacity='0';setTimeout(function(){ls.remove();},400);},200);}
+    }
+    var sc=document.querySelector('a-scene');
+    if(sc){
+      if(sc.hasLoaded)dismiss();
+      else sc.addEventListener('loaded',dismiss);
+    }else{
+      window.addEventListener('load',dismiss);
+    }
+    setTimeout(dismiss,8000);
+  })();
+  </script>
   <div id="transition" class="transition"></div>
 
   <!-- Register A-Frame components before scene -->
@@ -18,18 +66,27 @@
   <script src="./js/components/target-hit.js"></script>
   <script src="./js/components/bloom-effect.js"></script>
   <script src="./js/components/camera-effects.js"></script>
+  <script src="./js/components/ambient-particles.js"></script>
+  <script src="./js/components/crosshair-feedback.js"></script>
+  <script src="./js/components/target-indicator.js"></script>
+  <script src="./js/components/teleport-pad.js"></script>
+  <script src="./js/components/weapon-model.js"></script>
+  <script src="./js/components/combo-popup.js"></script>
+  <script src="./js/components/gpu-particles.js"></script>
+  <script src="./js/components/dissolve-effect.js"></script>
+  <script src="./js/components/hand-shoot.js"></script>
 
   <a-scene id="scene" vr-mode-ui="enterVRButton: #enter-vr-btn" shadow="type: pcfsoft; autoUpdate: true"
-           bloom-effect="strength: 0.6; radius: 0.4; threshold: 0.7">
+           bloom-effect="strength: 0.6; radius: 0.4; threshold: 0.7" combo-popup-listener>
     <!-- Player Rig -->
     <a-entity id="player-rig" position="0 0 0">
-      <a-camera id="camera" position="0 1.6 0" wasd-controls-enabled="false" look-controls camera-effects="shakeLevel: medium">
+      <a-camera id="camera" position="0 1.6 0" wasd-controls-enabled="false" look-controls camera-effects="shakeLevel: medium" target-indicator>
         <!-- Game HUD (hidden until game starts) -->
         <!-- Crosshair: outer ring + main ring + center dot -->
         <a-ring id="crosshair-outer" position="0 0 -1" radius-inner="0.025" radius-outer="0.027"
                 color="#00ff88" material="shader: flat; opacity: 0.25" visible="false"></a-ring>
         <a-ring id="crosshair" position="0 0 -1" radius-inner="0.01" radius-outer="0.015"
-                color="#00ff88" material="shader: flat; opacity: 0.8" visible="false"></a-ring>
+                color="#00ff88" material="shader: flat; opacity: 0.8" crosshair-feedback visible="false"></a-ring>
         <a-circle id="crosshair-dot" position="0 0 -0.999" radius="0.003"
                   material="shader: flat; color: #00ff88; opacity: 0.9" visible="false"></a-circle>
 
@@ -48,6 +105,27 @@
                 scale="0.2 0.2 0.2" color="#aaaaff" font="mozillavr" align="right" visible="false"></a-text>
         <a-text id="hud-level" value="" position="-0.45 0.35 -1"
                 scale="0.2 0.2 0.2" color="#ffd700" font="mozillavr" align="left" visible="false"></a-text>
+        <!-- TASK-300: Reaction time HUD -->
+        <a-text id="hud-reaction" value="" position="0.45 0.35 -1"
+                scale="0.2 0.2 0.2" color="#00ff88" font="mozillavr" align="right" visible="false"></a-text>
+        <!-- TASK-301: Color-match indicator -->
+        <a-text id="hud-color-match" value="" position="0 -0.18 -1"
+                scale="0.35 0.35 0.35" color="#ffffff" font="mozillavr" align="center" visible="false"></a-text>
+        <!-- TASK-314: Accuracy HUD -->
+        <a-text id="hud-accuracy" value="" position="-0.45 0.14 -1"
+                scale="0.2 0.2 0.2" color="#00ff88" font="mozillavr" align="left" visible="false"></a-text>
+        <!-- TASK-314: PB Pace indicator -->
+        <a-text id="hud-pb-pace" value="" position="0.45 0.14 -1"
+                scale="0.2 0.2 0.2" color="#00ff88" font="mozillavr" align="right" visible="false"></a-text>
+        <!-- TASK-314: Streak counter -->
+        <a-text id="hud-streak" value="" position="0 0.28 -1"
+                scale="0.22 0.22 0.22" color="#ff8800" font="mozillavr" align="center" visible="false"></a-text>
+        <!-- TASK-311: Surge HUD -->
+        <a-text id="hud-surge" value="" position="0 -0.08 -1"
+                scale="0.4 0.4 0.4" color="#ffdd00" font="mozillavr" align="center" visible="false"></a-text>
+        <!-- TASK-312: Debuff HUD -->
+        <a-text id="hud-debuff" value="" position="0 -0.28 -1"
+                scale="0.25 0.25 0.25" color="#ff4444" font="mozillavr" align="center" visible="false"></a-text>
         <a-cursor id="game-cursor" color="#00ff88" fuse="false" raycaster="objects: .target; far: 100" visible="false"></a-cursor>
 
         <!-- Boss Health Bar HUD -->
@@ -98,7 +176,19 @@
       <a-entity id="right-hand"
                 laser-controls="hand: right; model: false; lineColor: #ff4444; lineOpacity: 0.7"
                 raycaster="objects: .clickable; far: 20; lineColor: #ff4444; lineOpacity: 0.7"
-                cursor="fuse: false; rayOrigin: entity">
+                cursor="fuse: false; rayOrigin: entity"
+                weapon-model>
+      </a-entity>
+
+      <!-- Hand tracking (TASK-323): auto-enabled when controllers not detected -->
+      <a-entity id="left-hand-tracking"
+                hand-tracking-controls="hand: left; modelStyle: mesh; modelColor: #44aaff"
+                visible="false">
+      </a-entity>
+      <a-entity id="right-hand-tracking"
+                hand-tracking-controls="hand: right; modelStyle: mesh; modelColor: #ff4444"
+                hand-shoot
+                visible="false">
       </a-entity>
     </a-entity>
 
@@ -123,53 +213,58 @@
       <a-light type="point" position="4 4 -6" intensity="0.5" color="#44ff66" distance="15"></a-light>
 
       <!-- Panel layers: shadow → glow border → main -->
-      <a-plane position="0 1.4 -3.6" width="4.2" height="3.8" color="#050520"
+      <a-plane position="0 1.5 -3.6" width="4.2" height="3.8" color="#050520"
                material="shader: flat; opacity: 0.95"></a-plane>
-      <a-plane position="0 1.4 -3.52" width="4.05" height="3.65" color="#00d4ff"
+      <a-plane position="0 1.5 -3.52" width="4.05" height="3.65" color="#00d4ff"
                material="shader: flat; opacity: 0.06"></a-plane>
-      <a-plane position="0 1.4 -3.5" width="4" height="3.6" color="#0a0a2a"
+      <a-plane position="0 1.5 -3.5" width="4" height="3.6" color="#0a0a2a"
                material="shader: flat; opacity: 0.92"></a-plane>
       <!-- Top accent line -->
-      <a-plane position="0 3.15 -3.45" width="3" height="0.005" color="#00d4ff"
+      <a-plane position="0 3.25 -3.45" width="3" height="0.005" color="#00d4ff"
                material="shader: flat; opacity: 0.5"
                animation="property: material.opacity; from: 0.3; to: 0.8; dur: 2000; loop: true; dir: alternate; easing: easeInOutSine"></a-plane>
 
-      <!-- Title with glow -->
-      <a-text value="VR QUEST V2" position="0 2.8 -3.42" align="center"
-              color="#00d4ff" width="7" opacity="0.25"></a-text>
-      <a-text value="VR QUEST V2" position="0 2.8 -3.4" align="center"
-              color="#00d4ff" width="7"></a-text>
-      <a-text value="Target Shooter" position="0 2.5 -3.4" align="center"
-              color="#8888aa" width="3.5"></a-text>
+      <!-- Title -->
+      <a-text value="Target Shooter" position="0 2.95 -3.4" align="center"
+              color="#00d4ff" width="6"></a-text>
 
       <!-- Player Info with background bar -->
-      <a-plane position="0 2.2 -3.45" width="2.5" height="0.2" color="#1a1a3a"
+      <a-plane position="0 2.6 -3.45" width="2.5" height="0.2" color="#1a1a3a"
                material="shader: flat; opacity: 0.7"></a-plane>
-      <a-text id="player-info" value="Lv.1 | 0 Coins" position="0 2.2 -3.4" align="center"
+      <a-text id="player-info" value="Lv.1 | 0 Coins" position="0 2.6 -3.4" align="center"
               color="#ffd700" width="3"></a-text>
 
       <!-- Game Mode Section with decorative lines -->
-      <a-plane position="-1.0 1.9 -3.42" width="0.4" height="0.002" color="#00d4ff"
+      <a-plane position="-1.0 2.25 -3.42" width="0.4" height="0.002" color="#00d4ff"
                material="shader: flat; opacity: 0.3"></a-plane>
-      <a-text value="GAME MODE" position="0 1.9 -3.4" align="center"
+      <a-text value="GAME MODE" position="0 2.25 -3.4" align="center"
               color="#aaaacc" width="2.5"></a-text>
-      <a-plane position="1.0 1.9 -3.42" width="0.4" height="0.002" color="#00d4ff"
+      <a-plane position="1.0 2.25 -3.42" width="0.4" height="0.002" color="#00d4ff"
                material="shader: flat; opacity: 0.3"></a-plane>
-      <a-entity id="mode-buttons" position="0 1.6 -3.4"></a-entity>
+      <a-entity id="mode-buttons" position="0 1.95 -3.4"></a-entity>
 
       <!-- Weapon Section with decorative lines -->
-      <a-plane position="-0.85 1.2 -3.42" width="0.4" height="0.002" color="#00d4ff"
+      <a-plane position="-0.85 1.6 -3.42" width="0.4" height="0.002" color="#00d4ff"
                material="shader: flat; opacity: 0.3"></a-plane>
-      <a-text value="WEAPON" position="0 1.2 -3.4" align="center"
+      <a-text value="WEAPON" position="0 1.6 -3.4" align="center"
               color="#aaaacc" width="2.5"></a-text>
-      <a-plane position="0.85 1.2 -3.42" width="0.4" height="0.002" color="#00d4ff"
+      <a-plane position="0.85 1.6 -3.42" width="0.4" height="0.002" color="#00d4ff"
                material="shader: flat; opacity: 0.3"></a-plane>
-      <a-entity id="weapon-buttons" position="0 0.9 -3.4"></a-entity>
+      <a-entity id="weapon-buttons" position="0 1.32 -3.4"></a-entity>
+
+      <!-- Theme Section with decorative lines -->
+      <a-plane position="-0.85 0.98 -3.42" width="0.4" height="0.002" color="#00d4ff"
+               material="shader: flat; opacity: 0.3"></a-plane>
+      <a-text value="THEME" position="0 0.98 -3.4" align="center"
+              color="#aaaacc" width="2.5"></a-text>
+      <a-plane position="0.85 0.98 -3.42" width="0.4" height="0.002" color="#00d4ff"
+               material="shader: flat; opacity: 0.3"></a-plane>
+      <a-entity id="theme-buttons" position="0 0.7 -3.4"></a-entity>
 
       <!-- PLAY Button with glow -->
-      <a-plane position="0 0.35 -3.35" width="1.6" height="0.55" color="#00ff88"
+      <a-plane position="0 0.2 -3.35" width="1.6" height="0.55" color="#00ff88"
                material="shader: flat; opacity: 0.05"></a-plane>
-      <a-plane id="btn-play-vr" class="clickable" position="0 0.35 -3.3"
+      <a-plane id="btn-play-vr" class="clickable" position="0 0.2 -3.3"
                width="1.4" height="0.45" color="#006644"
                material="shader: flat; opacity: 0.9"
                data-action="play"
@@ -188,10 +283,17 @@
       -->
 
       <!-- SHOP Button (right corner) -->
-      <a-plane id="btn-shop-vr" class="clickable" position="1.25 0.35 -3.3"
+      <a-plane id="btn-shop-vr" class="clickable" position="1.25 0.2 -3.3"
                width="0.5" height="0.38" color="#4a3800"
                material="shader: flat; opacity: 0.9; side: double">
         <a-text value="Shop" align="center" color="#ffd700" width="2.5" position="0 0 0.01"></a-text>
+      </a-plane>
+
+      <!-- LEADERBOARD Button (left corner) -->
+      <a-plane id="btn-leaderboard-vr" class="clickable" position="-1.25 0.2 -3.3"
+               width="0.5" height="0.38" color="#1a2a4a"
+               material="shader: flat; opacity: 0.9; side: double">
+        <a-text value="🏆 Rank" align="center" color="#00d4ff" width="2.5" position="0 0 0.01"></a-text>
       </a-plane>
 
       <!-- Decorative floating targets -->
@@ -258,17 +360,96 @@
       </a-plane>
     </a-entity>
 
+    <!-- ==================== LEADERBOARD CONTENT (hidden until RANK) ==================== -->
+    <a-entity id="leaderboard-content" visible="false">
+      <!-- Floor -->
+      <a-plane position="0 0 0" rotation="-90 0 0" width="50" height="50" color="#0d1b2a"></a-plane>
+
+      <!-- Lighting -->
+      <a-light type="point" position="0 6 -4" intensity="1" color="#00d4ff" distance="20"></a-light>
+      <a-light type="point" position="-3 4 -6" intensity="0.5" color="#4466ff" distance="15"></a-light>
+      <a-light type="point" position="3 4 -6" intensity="0.5" color="#44ffaa" distance="15"></a-light>
+
+      <!-- Panel layers -->
+      <a-plane position="0 1.6 -3.6" width="4.4" height="3.4" color="#050520"
+               material="shader: flat; opacity: 0.95"></a-plane>
+      <a-plane position="0 1.6 -3.52" width="4.25" height="3.25" color="#00d4ff"
+               material="shader: flat; opacity: 0.06"></a-plane>
+      <a-plane position="0 1.6 -3.5" width="4.2" height="3.2" color="#0a0a2a"
+               material="shader: flat; opacity: 0.92"></a-plane>
+
+      <!-- Title -->
+      <a-text value="🏆 LEADERBOARD" position="0 2.85 -3.42" align="center"
+              color="#00d4ff" width="5" opacity="0.25"></a-text>
+      <a-text value="🏆 LEADERBOARD" position="0 2.85 -3.4" align="center"
+              color="#00d4ff" width="5"></a-text>
+
+      <!-- Mode tabs -->
+      <a-entity id="lb-mode-tabs" position="0 2.5 -3.4"></a-entity>
+
+      <!-- Rank info -->
+      <a-text id="lb-rank-info-vr" value="" position="0 2.3 -3.4" align="center"
+              color="#ffd700" width="2.5"></a-text>
+
+      <!-- Leaderboard rows container -->
+      <a-entity id="lb-rows" position="0 1.8 -3.4"></a-entity>
+
+      <!-- Loading text -->
+      <a-text id="lb-loading" value="Loading..." position="0 1.5 -3.4" align="center"
+              color="#555" width="2" visible="true"></a-text>
+
+      <!-- Back button -->
+      <a-plane position="0 0.25 -3.35" width="1.8" height="0.45" color="#aaaacc"
+               material="shader: flat; opacity: 0.04"></a-plane>
+      <a-plane id="btn-lb-back" class="clickable" position="0 0.25 -3.3"
+               width="1.65" height="0.35" color="#333355"
+               material="shader: flat; opacity: 0.9">
+        <a-text value="← BACK" align="center" color="#aaaacc" width="4"
+                position="0 0 0.01"></a-text>
+      </a-plane>
+    </a-entity>
+
     <!-- ==================== GAME CONTENT (hidden until PLAY) ==================== -->
     <a-entity id="game-content" visible="false">
-      <!-- Grid floor -->
-      <a-plane position="0 0 0" rotation="-90 0 0" width="100" height="100"
+
+      <!-- === FLOATING PLATFORM === -->
+      <!-- Platform surface (32x32, receives shadow) -->
+      <a-plane id="platform-surface" position="0 0 0" rotation="-90 0 0" width="32" height="32"
                material="color: #111133; metalness: 0.8; roughness: 0.4" shadow="receive: true"></a-plane>
+      <!-- Platform slab (thickness underneath) -->
+      <a-box id="platform-slab" position="0 -0.2 0" width="32" height="0.3" depth="32"
+             material="color: #0a0a22; metalness: 0.9; roughness: 0.2"></a-box>
+
+      <!-- Grid overlay -->
       <a-entity id="floor-grid" position="0 0.01 0" rotation="-90 0 0">
         <a-plane width="30" height="30" material="color: #1a1a4e; wireframe: true; wireframeLinewidth: 1; opacity: 0.3"
                  segments-width="30" segments-height="30"></a-plane>
       </a-entity>
 
-      <!-- Floor glow rings -->
+      <!-- Platform edge glow (4 sides) -->
+      <a-plane class="platform-edge" position="0 0.02 -16" width="32" height="0.06"
+               material="shader: flat; color: #0088ff; emissive: #0088ff; emissiveIntensity: 1; opacity: 0.5"
+               animation="property: material.opacity; from: 0.3; to: 0.6; dur: 2000; loop: true; dir: alternate"></a-plane>
+      <a-plane class="platform-edge" position="0 0.02 16" width="32" height="0.06"
+               material="shader: flat; color: #0088ff; emissive: #0088ff; emissiveIntensity: 1; opacity: 0.5"
+               animation="property: material.opacity; from: 0.3; to: 0.6; dur: 2000; loop: true; dir: alternate"></a-plane>
+      <a-plane class="platform-edge" position="-16 0.02 0" rotation="0 90 0" width="32" height="0.06"
+               material="shader: flat; color: #0088ff; emissive: #0088ff; emissiveIntensity: 1; opacity: 0.5"
+               animation="property: material.opacity; from: 0.3; to: 0.6; dur: 2000; loop: true; dir: alternate"></a-plane>
+      <a-plane class="platform-edge" position="16 0.02 0" rotation="0 90 0" width="32" height="0.06"
+               material="shader: flat; color: #0088ff; emissive: #0088ff; emissiveIntensity: 1; opacity: 0.5"
+               animation="property: material.opacity; from: 0.3; to: 0.6; dur: 2000; loop: true; dir: alternate"></a-plane>
+
+      <!-- Under-glow (beneath platform) -->
+      <a-light class="under-glow-light" type="point" position="0 -2 0" color="#0088ff" intensity="0.4" distance="15"></a-light>
+      <a-torus class="under-glow-ring" position="0 -0.5 0" rotation="-90 0 0" radius="10" radius-tubular="0.04"
+               material="color: #0088ff; emissive: #0088ff; emissiveIntensity: 1; opacity: 0.2"
+               animation="property: rotation; from: -90 0 0; to: -90 0 360; dur: 25000; easing: linear; loop: true"></a-torus>
+      <a-torus class="under-glow-ring" position="0 -0.4 0" rotation="-90 0 0" radius="6" radius-tubular="0.03"
+               material="color: #00d4ff; emissive: #00d4ff; emissiveIntensity: 0.8; opacity: 0.15"
+               animation="property: rotation; from: -90 0 0; to: -90 0 -360; dur: 18000; easing: linear; loop: true"></a-torus>
+
+      <!-- Floor glow rings (on platform surface) -->
       <a-torus position="0 0.03 0" rotation="-90 0 0" radius="8" radius-tubular="0.03"
                material="color: #00d4ff; emissive: #00d4ff; emissiveIntensity: 0.8; opacity: 0.2"
                animation="property: rotation; from: -90 0 0; to: -90 0 360; dur: 20000; easing: linear; loop: true"></a-torus>
@@ -276,43 +457,48 @@
                material="color: #ff44aa; emissive: #ff44aa; emissiveIntensity: 0.6; opacity: 0.15"
                animation="property: rotation; from: -90 0 0; to: -90 0 -360; dur: 15000; easing: linear; loop: true"></a-torus>
 
-      <!-- Arena walls (semi-transparent) -->
-      <a-box position="0 2 -15" width="30" height="5" depth="0.1"
-             material="color: #0044aa; opacity: 0.12; shader: flat"></a-box>
-      <a-box position="-15 2 0" width="0.1" height="5" depth="30"
-             material="color: #0044aa; opacity: 0.12; shader: flat"></a-box>
-      <a-box position="15 2 0" width="0.1" height="5" depth="30"
-             material="color: #0044aa; opacity: 0.12; shader: flat"></a-box>
-      <a-box position="0 2 15" width="30" height="5" depth="0.1"
-             material="color: #0044aa; opacity: 0.12; shader: flat"></a-box>
+      <!-- === ENERGY BARRIERS (soft, semi-transparent — replace solid walls) === -->
+      <a-plane class="arena-barrier" position="0 2 -15" width="30" height="5"
+               material="shader: flat; color: #0044aa; opacity: 0.04; transparent: true; side: double"
+               animation="property: material.opacity; from: 0.01; to: 0.025; dur: 3000; loop: true; dir: alternate; easing: easeInOutSine"></a-plane>
+      <a-plane class="arena-barrier" position="-15 2 0" rotation="0 90 0" width="30" height="5"
+               material="shader: flat; color: #0044aa; opacity: 0.04; transparent: true; side: double"
+               animation="property: material.opacity; from: 0.01; to: 0.025; dur: 3000; loop: true; dir: alternate; easing: easeInOutSine"></a-plane>
+      <a-plane class="arena-barrier" position="15 2 0" rotation="0 90 0" width="30" height="5"
+               material="shader: flat; color: #0044aa; opacity: 0.04; transparent: true; side: double"
+               animation="property: material.opacity; from: 0.01; to: 0.025; dur: 3000; loop: true; dir: alternate; easing: easeInOutSine"></a-plane>
+      <a-plane class="arena-barrier" position="0 2 15" width="30" height="5"
+               material="shader: flat; color: #0044aa; opacity: 0.04; transparent: true; side: double"
+               animation="property: material.opacity; from: 0.01; to: 0.025; dur: 3000; loop: true; dir: alternate; easing: easeInOutSine"></a-plane>
 
-      <!-- Wall base glow lines -->
-      <a-plane position="0 0.05 -15" width="30" height="0.04"
+      <!-- Barrier base glow lines -->
+      <a-plane class="wall-base-glow" position="0 0.05 -15" width="30" height="0.04"
                material="shader: flat; color: #0088ff; emissive: #0088ff; emissiveIntensity: 1; opacity: 0.5"></a-plane>
-      <a-plane position="0 0.05 15" width="30" height="0.04"
+      <a-plane class="wall-base-glow" position="0 0.05 15" width="30" height="0.04"
                material="shader: flat; color: #0088ff; emissive: #0088ff; emissiveIntensity: 1; opacity: 0.5"></a-plane>
-      <a-plane position="-15 0.05 0" rotation="0 90 0" width="30" height="0.04"
+      <a-plane class="wall-base-glow" position="-15 0.05 0" rotation="0 90 0" width="30" height="0.04"
                material="shader: flat; color: #0088ff; emissive: #0088ff; emissiveIntensity: 1; opacity: 0.5"></a-plane>
-      <a-plane position="15 0.05 0" rotation="0 90 0" width="30" height="0.04"
+      <a-plane class="wall-base-glow" position="15 0.05 0" rotation="0 90 0" width="30" height="0.04"
                material="shader: flat; color: #0088ff; emissive: #0088ff; emissiveIntensity: 1; opacity: 0.5"></a-plane>
 
-      <!-- Wall corner vertical glow lines -->
-      <a-cylinder position="-15 2.5 -15" radius="0.025" height="5"
+      <!-- Corner glow lines -->
+      <a-cylinder class="wall-corner-glow" position="-15 2.5 -15" radius="0.025" height="5"
                   material="color: #0088ff; emissive: #0088ff; emissiveIntensity: 1; opacity: 0.4"></a-cylinder>
-      <a-cylinder position="15 2.5 -15" radius="0.025" height="5"
+      <a-cylinder class="wall-corner-glow" position="15 2.5 -15" radius="0.025" height="5"
                   material="color: #0088ff; emissive: #0088ff; emissiveIntensity: 1; opacity: 0.4"></a-cylinder>
-      <a-cylinder position="-15 2.5 15" radius="0.025" height="5"
+      <a-cylinder class="wall-corner-glow" position="-15 2.5 15" radius="0.025" height="5"
                   material="color: #0088ff; emissive: #0088ff; emissiveIntensity: 1; opacity: 0.4"></a-cylinder>
-      <a-cylinder position="15 2.5 15" radius="0.025" height="5"
+      <a-cylinder class="wall-corner-glow" position="15 2.5 15" radius="0.025" height="5"
                   material="color: #0088ff; emissive: #0088ff; emissiveIntensity: 1; opacity: 0.4"></a-cylinder>
 
-      <!-- Lighting -->
+      <!-- === LIGHTING (updated by applyTheme) === -->
+      <a-light type="ambient" color="#222244" intensity="0.4"></a-light>
       <a-light type="point" position="0 10 0" intensity="1.2" color="#4466ff" distance="40"></a-light>
       <a-light type="point" position="-8 6 -8" intensity="0.6" color="#ff4444" distance="25"></a-light>
       <a-light type="point" position="8 6 -8" intensity="0.6" color="#44ff44" distance="25"></a-light>
       <a-light type="point" position="0 4 8" intensity="0.4" color="#ff88ff" distance="20"></a-light>
 
-      <!-- Sci-fi pillars with base rings and top orbs -->
+      <!-- === PILLARS (themed by applyTheme) === -->
       <a-entity class="arena-pillar" position="-14 0 -14">
         <a-cylinder position="0 2 0" radius="0.3" height="4"
                     material="color: #1a1a4e; metalness: 0.9; roughness: 0.2" shadow="cast: true"></a-cylinder>
@@ -350,43 +536,28 @@
                   animation="property: material.emissiveIntensity; from: 0.5; to: 1.2; dur: 2400; loop: true; dir: alternate; easing: easeInOutSine"></a-sphere>
       </a-entity>
 
-      <!-- Floating ring structures -->
-      <a-torus position="-8 5 -10" radius="1.2" radius-tubular="0.03"
-               material="color: #00d4ff; emissive: #00d4ff; emissiveIntensity: 0.6; opacity: 0.2"
-               animation="property: rotation; to: 360 0 0; dur: 12000; easing: linear; loop: true"></a-torus>
-      <a-torus position="8 6 -8" radius="0.8" radius-tubular="0.02"
-               material="color: #ff44aa; emissive: #ff44aa; emissiveIntensity: 0.6; opacity: 0.2"
-               animation="property: rotation; to: 0 360 0; dur: 10000; easing: linear; loop: true"></a-torus>
-      <a-torus position="0 7 -12" radius="1.5" radius-tubular="0.04"
-               material="color: #4466ff; emissive: #4466ff; emissiveIntensity: 0.5; opacity: 0.15"
-               animation="property: rotation; to: 180 360 0; dur: 18000; easing: linear; loop: true"></a-torus>
+      <!-- === DYNAMIC CONTAINERS (populated by applyTheme) === -->
+      <a-entity id="sky-gradient"></a-entity>
+      <a-entity id="floor-fade"></a-entity>
+      <a-entity id="below-void"></a-entity>
+      <a-entity id="distant-env"></a-entity>
 
-      <!-- Star field (distant small spheres) -->
-      <a-sphere position="-10 9 -18" radius="0.04" material="shader: flat; color: #ffffff; opacity: 0.4"
-                animation="property: material.opacity; from: 0.2; to: 0.5; dur: 1800; loop: true; dir: alternate"></a-sphere>
-      <a-sphere position="12 11 -16" radius="0.03" material="shader: flat; color: #ffffff; opacity: 0.3"
-                animation="property: material.opacity; from: 0.15; to: 0.45; dur: 2200; loop: true; dir: alternate"></a-sphere>
-      <a-sphere position="-6 12 -20" radius="0.05" material="shader: flat; color: #aaccff; opacity: 0.35"
-                animation="property: material.opacity; from: 0.2; to: 0.5; dur: 2600; loop: true; dir: alternate"></a-sphere>
-      <a-sphere position="8 10 -19" radius="0.035" material="shader: flat; color: #ffffff; opacity: 0.3"
-                animation="property: material.opacity; from: 0.1; to: 0.4; dur: 1600; loop: true; dir: alternate"></a-sphere>
-      <a-sphere position="-15 13 -17" radius="0.04" material="shader: flat; color: #ffddaa; opacity: 0.25"
-                animation="property: material.opacity; from: 0.15; to: 0.4; dur: 3000; loop: true; dir: alternate"></a-sphere>
-      <a-sphere position="5 14 -22" radius="0.06" material="shader: flat; color: #aaaaff; opacity: 0.2"
-                animation="property: material.opacity; from: 0.1; to: 0.35; dur: 2800; loop: true; dir: alternate"></a-sphere>
-      <a-sphere position="-3 8 -15" radius="0.03" material="shader: flat; color: #ffffff; opacity: 0.4"
-                animation="property: material.opacity; from: 0.2; to: 0.5; dur: 2000; loop: true; dir: alternate"></a-sphere>
-      <a-sphere position="14 12 -21" radius="0.045" material="shader: flat; color: #ffccff; opacity: 0.3"
-                animation="property: material.opacity; from: 0.15; to: 0.45; dur: 2400; loop: true; dir: alternate"></a-sphere>
-      <a-sphere position="-18 10 -14" radius="0.04" material="shader: flat; color: #ffffff; opacity: 0.35"
-                animation="property: material.opacity; from: 0.2; to: 0.5; dur: 1900; loop: true; dir: alternate"></a-sphere>
-      <a-sphere position="0 15 -25" radius="0.07" material="shader: flat; color: #88aaff; opacity: 0.15"
-                animation="property: material.opacity; from: 0.1; to: 0.3; dur: 3200; loop: true; dir: alternate"></a-sphere>
+      <!-- Ambient particles (updated by applyTheme) -->
+      <a-entity id="ambient-particles-container"></a-entity>
 
-      <!-- Nebula clouds (large, very faint) -->
-      <a-sphere position="-12 8 -20" radius="3" material="shader: flat; color: #2244aa; opacity: 0.03"></a-sphere>
-      <a-sphere position="10 10 -22" radius="4" material="shader: flat; color: #aa2266; opacity: 0.02"></a-sphere>
-      <a-sphere position="0 12 -18" radius="2.5" material="shader: flat; color: #4422aa; opacity: 0.025"></a-sphere>
+      <!-- Teleport pads -->
+      <a-circle teleport-pad="target: 0 0 -8" position="0 0.05 -8" rotation="-90 0 0" radius="0.8"
+                material="shader: flat; color: #00d4ff; opacity: 0.25; transparent: true"
+                animation="property: material.opacity; from: 0.15; to: 0.35; dur: 1500; loop: true; dir: alternate"></a-circle>
+      <a-circle teleport-pad="target: 0 0 8" position="0 0.05 8" rotation="-90 0 0" radius="0.8"
+                material="shader: flat; color: #00d4ff; opacity: 0.25; transparent: true"
+                animation="property: material.opacity; from: 0.15; to: 0.35; dur: 1500; loop: true; dir: alternate"></a-circle>
+      <a-circle teleport-pad="target: -8 0 0" position="-8 0.05 0" rotation="-90 0 0" radius="0.8"
+                material="shader: flat; color: #00d4ff; opacity: 0.25; transparent: true"
+                animation="property: material.opacity; from: 0.15; to: 0.35; dur: 1500; loop: true; dir: alternate"></a-circle>
+      <a-circle teleport-pad="target: 8 0 0" position="8 0.05 0" rotation="-90 0 0" radius="0.8"
+                material="shader: flat; color: #00d4ff; opacity: 0.25; transparent: true"
+                animation="property: material.opacity; from: 0.15; to: 0.35; dur: 1500; loop: true; dir: alternate"></a-circle>
 
       <!-- Target container -->
       <a-entity id="target-container"></a-entity>
@@ -394,5 +565,6 @@
   </a-scene>
 
   <script type="module" src="./js/main.js"></script>
+<script>if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});</script>
 </body>
 </html>

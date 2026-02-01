@@ -16,6 +16,17 @@ const ACHIEVEMENTS = [
   { id: 'thousand', name: 'Thousand', description: 'Hit 1000 total targets', icon: '🏅', rewardXp: 100, check: (p) => p.totalTargetsHit >= 1000 },
   { id: 'level20', name: 'Legend', description: 'Reach level 20', icon: '💎', rewardXp: 200, check: (p) => p.level >= 20 },
   { id: 'dedicated', name: 'Dedicated', description: 'Play 100 games', icon: '🎮', rewardXp: 100, check: (p) => p.gamesPlayed >= 100 },
+  // V14 achievements
+  { id: 'combo_legend', name: 'Combo Legend', description: 'Get a x25 combo', icon: '💥', rewardXp: 150, check: (p) => p.bestCombo >= 25 },
+  { id: 'five_thousand', name: 'Five Thousand', description: 'Hit 5000 total targets', icon: '🌟', rewardXp: 200, check: (p) => p.totalTargetsHit >= 5000 },
+  { id: 'level30', name: 'Mythic', description: 'Reach level 30', icon: '🔱', rewardXp: 300, check: (p) => p.level >= 30 },
+  { id: 'high_roller', name: 'High Roller', description: 'Earn 500 coins total', icon: '💰', rewardXp: 75, check: (p) => (p.coins || 0) >= 500 },
+  { id: 'sniper_elite', name: 'Sniper Elite', description: 'Score 2000 in Time Attack', icon: '🎯', rewardXp: 100, check: (p) => (p.highScores?.timeAttack || 0) >= 2000 },
+  { id: 'iron_will', name: 'Iron Will', description: 'Score 1000 in Survival', icon: '🛡️', rewardXp: 150, check: (p) => (p.highScores?.survival || 0) >= 1000 },
+  { id: 'boss_master', name: 'Boss Master', description: 'Score 1000 in Boss Rush', icon: '💀', rewardXp: 200, check: (p) => (p.highScores?.bossRush || 0) >= 1000 },
+  { id: 'perfectionist', name: 'Perfectionist', description: 'Achieve 90%+ accuracy in a game', icon: '✨', rewardXp: 100, check: (p) => (p.bestAccuracy || 0) >= 90 },
+  { id: 'marathon', name: 'Marathon', description: 'Play 250 games', icon: '🏃', rewardXp: 150, check: (p) => p.gamesPlayed >= 250 },
+  { id: 'collector', name: 'Collector', description: 'Unlock 5 weapon skins', icon: '🎨', rewardXp: 75, check: (p) => (p.ownedSkins?.length || 0) >= 5 },
 ];
 
 async function checkAchievements() {

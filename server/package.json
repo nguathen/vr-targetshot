@@ -5,10 +5,11 @@
   "type": "module",
   "scripts": {
     "start": "node index.js",
+    "start:daemon": "nohup node index.js > server.log 2>&1 & echo $! > server.pid && echo PID $(cat server.pid) - log: server.log",
+    "stop": "kill $(cat server.pid 2>/dev/null) 2>/dev/null; rm -f server.pid; echo stopped",
     "dev": "node --watch index.js"
   },
   "dependencies": {
-    "canvas": "^3.2.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2"

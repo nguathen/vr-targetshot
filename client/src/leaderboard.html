@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VR Quest - Leaderboard</title>
+  <link rel="stylesheet" href="./css/style.css">
+</head>
+<body>
+  <div id="transition" class="transition"></div>
+
+  <div id="overlay">
+    <div class="menu stats-menu">
+      <h1>Leaderboard</h1>
+
+      <div class="lb-tabs" id="lb-tabs"></div>
+      <div class="lb-tabs" id="lb-filter" style="margin-bottom: 8px"></div>
+
+      <div id="lb-rank-info" style="font-size: 0.75rem; color: #888; margin-bottom: 8px; text-align: center;"></div>
+
+      <div class="leaderboard" id="lb-list" style="max-height: 350px"></div>
+
+      <div class="buttons" style="margin-top: 16px">
+        <button id="btn-back" class="btn btn-secondary">Back to Menu</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./js/leaderboard-main.js"></script>
+<script>if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});</script>
+</body>
+</html>

@@ -10,6 +10,7 @@ const DEFAULT_SETTINGS = {
   reducedMotion: false,
   autoSubmitScore: true,
   showCombo: true,
+  colorblindMode: 'none',
 };
 
 function init() {
@@ -28,6 +29,9 @@ function init() {
   const reducedMotion = document.getElementById('setting-reduced-motion');
   const autoSubmit = document.getElementById('setting-auto-submit');
   const showCombo = document.getElementById('setting-show-combo');
+  const colorblindSelect = document.getElementById('setting-colorblind');
+  const difficultySelect = document.getElementById('setting-difficulty');
+  const minimalHud = document.getElementById('setting-minimal-hud');
   const musicCheckbox = document.getElementById('setting-music');
 
   volumeSlider.value = settings.volume;
@@ -41,6 +45,9 @@ function init() {
   reducedMotion.checked = settings.reducedMotion;
   autoSubmit.checked = settings.autoSubmitScore;
   showCombo.checked = settings.showCombo;
+  if (colorblindSelect) colorblindSelect.value = settings.colorblindMode || 'none';
+  if (difficultySelect) difficultySelect.value = settings.difficulty || 'normal';
+  if (minimalHud) minimalHud.checked = settings.minimalHud || false;
 
   // Color swatches
   crosshairColors.querySelectorAll('.color-swatch').forEach(sw => {
@@ -73,6 +80,9 @@ function init() {
       autoSubmitScore: autoSubmit.checked,
       showCombo: showCombo.checked,
       music: musicCheckbox ? musicCheckbox.checked : true,
+      colorblindMode: colorblindSelect ? colorblindSelect.value : 'none',
+      difficulty: difficultySelect ? difficultySelect.value : 'normal',
+      minimalHud: minimalHud ? minimalHud.checked : false,
     };
     await authManager.saveProfile({ settings: newSettings });
     window.location.href = './index.html';

@@ -62,8 +62,25 @@
         <label>Reduced Motion</label>
         <input type="checkbox" id="setting-reduced-motion" class="setting-checkbox">
       </div>
+      <div class="setting-row">
+        <label>Colorblind Mode</label>
+        <select id="setting-colorblind" class="setting-select">
+          <option value="none">None</option>
+          <option value="protanopia">Protanopia (Red-blind)</option>
+          <option value="deuteranopia">Deuteranopia (Green-blind)</option>
+          <option value="tritanopia">Tritanopia (Blue-blind)</option>
+        </select>
+      </div>
 
       <div class="section-label">Game</div>
+      <div class="setting-row">
+        <label>Difficulty</label>
+        <select id="setting-difficulty" class="setting-select">
+          <option value="easy">Easy</option>
+          <option value="normal" selected>Normal</option>
+          <option value="hard">Hard</option>
+        </select>
+      </div>
       <div class="setting-row">
         <label>Auto-submit Leaderboard</label>
         <input type="checkbox" id="setting-auto-submit" checked class="setting-checkbox">
@@ -71,6 +88,10 @@
       <div class="setting-row">
         <label>Show Combo Counter</label>
         <input type="checkbox" id="setting-show-combo" checked class="setting-checkbox">
+      </div>
+      <div class="setting-row">
+        <label>Minimal HUD</label>
+        <input type="checkbox" id="setting-minimal-hud" class="setting-checkbox">
       </div>
 
       <div class="section-label">Other</div>
@@ -87,5 +108,6 @@
   </div>
 
   <script type="module" src="./js/settings-main.js"></script>
+<script>if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});</script>
 </body>
 </html>

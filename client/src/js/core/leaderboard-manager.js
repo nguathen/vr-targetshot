@@ -14,15 +14,30 @@ class LeaderboardManager {
   }
 
   async submitScore(modeId, score) {
-    if (!isConfigured || !authManager.user) return;
-
-    const uid = authManager.uid;
-    const ref = doc(db, 'leaderboards', modeId, 'scores', uid);
-    await setDoc(ref, {
+    const uid = authManager.uid || 'local';
+    const entry = {
+      id: uid,
       uid,
       displayName: authManager.displayName,
       score,
       level: authManager.profile?.level || 1,
+    };
+
+    // Always update local cache (keeps best score per player)
+    if (!this._cache[modeId]) this._cache[modeId] = [];
+    const existing = this._cache[modeId].find(e => (e.id || e.uid) === uid);
+    if (existing) {
+      if (score > (existing.score || 0)) Object.assign(existing, entry);
+    } else {
+      this._cache[modeId].push(entry);
+    }
+    this._saveCache();
+
+    // Also submit to Firebase if available
+    if (!isConfigured || !authManager.user) return;
+    const ref = doc(db, 'leaderboards', modeId, 'scores', uid);
+    await setDoc(ref, {
+      ...entry,
       timestamp: serverTimestamp(),
     }, { merge: true });
   }

@@ -1,0 +1,9 @@
+
+> vr-quest-game@2.0.0 server
+> cd server && npm start
+
+
+> vr-quest-server@2.0.0 start
+> node index.js
+
+[Server] Running on http://localhost:3001

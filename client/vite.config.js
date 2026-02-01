@@ -22,6 +22,7 @@ export default defineConfig({
         settings: resolve(srcDir, 'settings.html'),
         tutorial: resolve(srcDir, 'tutorial.html'),
         friends: resolve(srcDir, 'friends.html'),
+        leaderboard: resolve(srcDir, 'leaderboard.html'),
       },
     },
   },
