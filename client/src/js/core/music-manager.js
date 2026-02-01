@@ -65,6 +65,28 @@ class MusicManager {
     this._arpGain = null;
     this._padGain = null;
     this._profile = null;
+    this._beatCallbacks = [];
+    this._beatCount = 0;
+  }
+
+  /** Get current effective BPM based on theme tempo and intensity */
+  getBPM() {
+    if (!this._profile) return 120;
+    const baseBPM = this._profile.tempo * 120;
+    return Math.round(baseBPM * (INTENSITY[this._intensity]?.tempoMul || 1));
+  }
+
+  /** Register a callback that fires on each beat: cb(bpm, beatCount) */
+  onBeat(callback) {
+    this._beatCallbacks.push(callback);
+  }
+
+  _fireBeat() {
+    this._beatCount++;
+    const bpm = this.getBPM();
+    this._beatCallbacks.forEach(cb => {
+      try { cb(bpm, this._beatCount); } catch (_e) {}
+    });
   }
 
   loadSettings() {
@@ -195,6 +217,7 @@ class MusicManager {
 
     const arpInterval = setInterval(() => {
       if (!this._playing) return;
+      this._fireBeat();
       const note = profile.arpNotes[Math.floor(Math.random() * profile.arpNotes.length)];
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();

@@ -12,7 +12,7 @@
 |--------|-------|
 | In Progress | 0 |
 | Pending | 0 |
-| Completed | 107 |
+| Completed | 111 |
 
 > V1–V13 — all completed (68 tasks).
 > **V14 Content & QoL Upgrade (TASK-270~277)** — completed.
@@ -22,6 +22,139 @@
 > **V18 Reflex Mastery (TASK-300~304)** — completed.
 > **V19 Adrenaline Surge (TASK-310~314)** — completed.
 > **V20 Visual & Interaction Upgrade (TASK-320~323)** — completed.
+> **V21 Audio & Visual Polish (TASK-330~333)** — completed.
+
+---
+
+## V21 — Audio & Visual Polish
+
+> **Goal:** Nâng cấp audio với dynamic music system + reverb + UI sounds, và mở rộng post-processing pipeline với vignette, damage flash, color grading per theme. Từ "sounds flat, looks uniform" → immersive audiovisual experience.
+
+## TASK-330: Dynamic Music System
+**Priority:** High
+**Status:** Pending
+**Assigned:** /dev
+
+### Description
+Procedural adaptive music system bằng Web Audio API. Không dùng audio files — tất cả generate bằng oscillators, gain nodes, filters. Music gồm 4 intensity layers crossfade theo gameplay state. Per-theme tonal palette (cyber=minor synth, sunset=warm pads, space=ambient drone, underwater=deep resonance).
+
+### Acceptance Criteria
+- [ ] Tạo `client/src/js/core/music-manager.js` — ES module
+- [ ] **4 Intensity Layers** (crossfade via gain nodes):
+  - `ambient` (0): Soft pad chord + subtle arpeggios (2 oscillators). Volume 0.15
+  - `active` (1): Add rhythmic pulse + bass line (4 oscillators). Volume 0.25
+  - `combat` (2): Add percussion (noise bursts) + faster arpeggios (6 oscillators). Volume 0.35
+  - `frenzy` (3): Full intensity — all layers + distortion filter + octave up (8 oscillators max). Volume 0.4
+- [ ] **Intensity transitions**: Crossfade over 2s. Triggered by events:
+  - Game idle/menu → ambient
+  - Game playing, combo < 5 → active
+  - Combo ≥ 5 or boss mode → combat
+  - Frenzy mode or surge event → frenzy
+  - Game over → fade to silence over 3s
+- [ ] **Per-theme tonal palette**:
+  - Cyber: C minor, sawtooth + square, filter cutoff 800Hz
+  - Sunset: D major, triangle + sine, warm filter 1200Hz
+  - Space: A minor, sine + sine (detuned), reverb-heavy, filter 400Hz
+  - Underwater: E minor, triangle, low-pass 600Hz, slow LFO modulation
+  - Neon: F# minor, square + sawtooth, high-pass 200Hz, fast arpeggios
+- [ ] **Randomized phrases**: Arpeggio patterns randomly pick from 4 note sequences per key, change every 8 bars
+- [ ] **Beat sync**: Internal BPM (100 ambient → 140 frenzy), used by rhythm targets (TASK-257)
+- [ ] **Settings**: `settings.music` = on/off, `settings.musicVolume` = 0-100
+- [ ] **API**: `start(theme)`, `stop()`, `setIntensity(level)`, `getBPM()`, `onBeat(callback)`
+- [ ] Max 8 concurrent oscillators. Reuse nodes, don't create/destroy per beat
+- [ ] Integrate with `game-main.js`: start on game start, set intensity from combo/events, stop on game over
+
+---
+
+## TASK-331: Audio Polish — Reverb, UI Sounds, Dissolve SFX
+**Priority:** Medium
+**Status:** Pending
+**Assigned:** /dev
+
+### Description
+Thêm ConvolverNode reverb cho spatial depth, UI interaction sounds, và các SFX còn thiếu (dissolve, surge, debuff). Tất cả procedural — no audio files.
+
+### Acceptance Criteria
+- [ ] **Reverb system** trong `audio-manager.js`:
+  - Tạo procedural impulse response (noise burst → exponential decay, 1.5s)
+  - ConvolverNode connected after SFX gain, trước master output
+  - Reverb send/dry mix: `settings.reverbAmount` (0-100, default 30)
+  - Per-theme reverb: Underwater = long (2s), Space = very long (3s), Cyber = short (0.8s)
+- [ ] **UI Sounds** (thêm methods vào audio-manager.js):
+  - `playUIHover()` — soft tick (sine 2000Hz, 20ms)
+  - `playUIClick()` — crisp click (square 1500Hz, 30ms)
+  - `playUIToggle()` — two-tone toggle (sine 800→1200Hz hoặc 1200→800Hz, 60ms)
+  - `playUIBack()` — descending tone (triangle 1000→600Hz, 80ms)
+  - `playUIError()` — harsh buzz (sawtooth 200Hz, 150ms, low volume)
+- [ ] **Missing SFX**:
+  - `playDissolve()` — rising noise sweep + shimmer (300ms, match dissolve duration)
+  - `playSurgeStart()` — dramatic low boom + ascending power chord (TASK-311)
+  - `playSurgeEnd()` — descending fade + release
+  - `playDebuffApply()` — dark dissonant tone (TASK-312)
+  - `playDebuffClear()` — bright resolution chord
+  - `playArenaClose()` — rumble + metal clang (TASK-313)
+- [ ] **Integrate UI sounds**: Hook into menu buttons (settings panel, mode select, weapon select)
+- [ ] Settings: `settings.sfxReverb` toggle (on/off)
+
+---
+
+## TASK-332: Vignette & Damage Flash Post-Processing
+**Priority:** Medium
+**Status:** Pending
+**Assigned:** /dev
+
+### Description
+Mở rộng `bloom-effect.js` pipeline: thêm vignette (edge darkening), damage flash (red overlay khi bị hit), low-HP pulse (vignette throbs). Single extra shader pass, combined vào composite step.
+
+### Acceptance Criteria
+- [ ] **Vignette** — thêm vào composite fragment shader:
+  - Radial darkening từ center ra edges
+  - Uniforms: `uVignetteIntensity` (0.0-1.0, default 0.3), `uVignetteRadius` (default 0.75)
+  - Smooth falloff: `smoothstep(radius, radius - softness, dist)`
+- [ ] **Damage Flash** — red overlay:
+  - Uniform `uDamageFlash` (0.0-1.0): mix red tint vào final color
+  - Triggered by `player-damage` event → flash to 0.4, decay over 300ms
+  - Low-HP pulse: khi HP ≤ 1, vignette intensity oscillates (0.3→0.6) at 1Hz
+- [ ] **Kill Flash** — brief white/color flash:
+  - Uniform `uKillFlash` (0.0-1.0): additive bright flash
+  - Triggered by `crosshair-kill` event → flash to 0.15, decay over 100ms
+  - Subtle — not distracting, just satisfying
+- [ ] **Event listeners** trong bloom-effect.js:
+  - `player-damage` → set uDamageFlash
+  - `crosshair-kill` → set uKillFlash
+  - `hp-update` → toggle low-HP pulse
+- [ ] **VR safety**: Vignette + damage flash work in XR mode (unlike bloom which is disabled)
+  - Use separate simple fullscreen quad for VR vignette
+- [ ] Settings: `settings.vignette` (on/off), `settings.damageFlash` (on/off)
+- [ ] Performance: Single additional shader pass, no extra render targets
+
+---
+
+## TASK-333: Color Grading & Tone Mapping
+**Priority:** Medium
+**Status:** Pending
+**Assigned:** /dev
+
+### Description
+Per-theme color grading và tone mapping trong post-processing pipeline. Mỗi theme có color palette riêng (temperature, saturation, contrast). ACES tone mapping thay thế default linear. Exposure control cho HDR-like look.
+
+### Acceptance Criteria
+- [ ] **Tone mapping** — thêm vào composite fragment shader:
+  - ACES Filmic tone mapping function (replace NoToneMapping)
+  - Uniform `uExposure` (default 1.0): multiply color trước tone map
+  - Result: brighter highlights bloom more, darker shadows have more detail
+- [ ] **Color grading** — per-theme uniforms:
+  - `uColorTemp` (warm/cool shift): Cyber=-0.1 (cool), Sunset=+0.15 (warm), Space=-0.05, Underwater=-0.15 (teal), Neon=0
+  - `uSaturation` (0-2): Cyber=1.1, Sunset=1.2, Space=0.8, Underwater=0.9, Neon=1.4
+  - `uContrast` (0-2): Cyber=1.1, Sunset=1.0, Space=1.15, Underwater=0.95, Neon=1.2
+  - `uBrightness` (-0.5 to 0.5): fine-tune per theme
+- [ ] **Implementation**: All grading in composite pass (no extra render targets):
+  - Apply order: exposure → ACES tonemap → color temp → saturation → contrast → vignette
+- [ ] **Theme switching**: Khi theme change, lerp grading uniforms over 1s (smooth transition)
+- [ ] **Event listener**: `theme-changed` event → update grading uniforms
+- [ ] **Settings**: `settings.colorGrading` (on/off), `settings.exposure` (0.5-2.0)
+- [ ] **VR mode**: Color grading works in XR mode (applied per-eye via composite)
+- [ ] Quest 2 safe: All operations trong single fragment shader, no extra texture lookups
 
 ---
 

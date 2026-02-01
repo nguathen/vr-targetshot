@@ -498,6 +498,32 @@ Game đã rất mature (103 tasks, V1-V19) nhưng visuals vẫn dùng primitive 
 2. Babylon.js migration — rejected: too disruptive, A-Frame ecosystem đủ mạnh
 3. Full environment component — deferred to V21: cần evaluate performance trên Quest 2 trước
 
+### ADR-012: V21 Audio & Visual Polish — Dynamic Music, Reverb, Vignette, Color Grading
+
+**Status:** Accepted
+**Date:** 2026-02-01
+
+**Context:**
+Audio system có 49 procedural SFX methods nhưng thiếu music, reverb, UI sounds. Post-processing chỉ có bloom 4-pass, thiếu vignette, damage flash, color grading. Game "sounds flat" và "looks uniform" across themes.
+
+**Decision:** 4 tasks:
+
+**Tier 1 — Audio:**
+1. **Dynamic Music System** — Procedural adaptive music bằng Web Audio API oscillators + gain layers. 4 intensity layers (ambient → combat → frenzy → boss) crossfade theo gameplay state. Per-theme tonal palette. No audio files.
+2. **Audio Polish** — Add ConvolverNode reverb (procedural impulse response), UI sounds (hover, click, toggle), dissolve SFX, missing feedback sounds. Expose reverb settings.
+
+**Tier 2 — Visual:**
+3. **Vignette & Damage Flash** — Extend bloom-effect pipeline: vignette darkening (adjustable), red damage flash overlay, low-HP pulsing vignette. Single extra shader pass.
+4. **Color Grading & Tone Mapping** — Per-theme color grading (cyber=cool blue, sunset=warm orange, space=desaturated, underwater=teal). ACES tone mapping. Exposure control. Integrated into composite pass.
+
+**Consequences:**
+- Positive: Music adds emotional depth — procedural = zero download overhead
+- Positive: Reverb gives spatial depth to all existing SFX
+- Positive: Vignette + color grading = each theme feels visually distinct
+- Negative: Music oscillators add CPU load — mitigated by limiting to 8 concurrent oscillators
+- Negative: Extra shader passes add GPU cost — mitigated by combining vignette+grading into single pass
+- Risk: Procedural music may sound repetitive — mitigated by randomized phrase generation + multiple patterns
+
 ### ADR Template
 
 ```markdown
