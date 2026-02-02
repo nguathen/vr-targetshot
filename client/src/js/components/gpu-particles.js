@@ -9,7 +9,7 @@
  */
 AFRAME.registerComponent('gpu-particles', {
   schema: {
-    preset: { type: 'string', default: 'ambient' }, // ambient, rain, dust, bubbles, starfield, burst, muzzle, powerup
+    preset: { type: 'string', default: 'ambient' }, // ambient, rain, dust, bubbles, starfield, burst, muzzle, powerup, explosion, smoke, trail
     count: { type: 'int', default: 500 },
     color: { type: 'color', default: '#ffffff' },
     color2: { type: 'color', default: '' },
@@ -311,6 +311,122 @@ AFRAME.registerComponent('gpu-particles', {
           p[i * 3 + 2] += v[i * 3 + 2] * dt;
         },
         respawn: null,
+      },
+      // TASK-363: Multi-layer explosion — core flash + fire + shrapnel + smoke
+      explosion: {
+        initParticle: (i, n) => {
+          const layer = i / n; // 0..1 — determines particle role
+          const theta = Math.random() * Math.PI * 2;
+          const phi = Math.acos(2 * Math.random() - 1);
+          if (layer < 0.15) {
+            // Core flash — large bright particles, slow outward
+            return {
+              x: 0, y: 0, z: 0,
+              vx: Math.sin(phi) * Math.cos(theta) * speed * 0.5,
+              vy: Math.sin(phi) * Math.sin(theta) * speed * 0.5 + speed * 0.3,
+              vz: Math.cos(phi) * speed * 0.5,
+              size: size * (2.5 + Math.random() * 1.5),
+              maxLife: lifetime * 0.4,
+            };
+          } else if (layer < 0.55) {
+            // Fire — medium speed outward with upward bias
+            const spd = speed * (1.5 + Math.random() * 2);
+            return {
+              x: 0, y: 0, z: 0,
+              vx: Math.sin(phi) * Math.cos(theta) * spd,
+              vy: Math.abs(Math.sin(phi) * Math.sin(theta)) * spd * 0.6 + speed * 1.0,
+              vz: Math.cos(phi) * spd,
+              size: size * (1.0 + Math.random() * 1.0),
+              maxLife: lifetime * (0.5 + Math.random() * 0.3),
+            };
+          } else if (layer < 0.8) {
+            // Shrapnel — fast, gravity-affected
+            const spd = speed * (3 + Math.random() * 3);
+            return {
+              x: 0, y: 0, z: 0,
+              vx: Math.sin(phi) * Math.cos(theta) * spd,
+              vy: Math.sin(phi) * Math.sin(theta) * spd * 0.5 + speed * 2,
+              vz: Math.cos(phi) * spd,
+              size: size * (0.3 + Math.random() * 0.4),
+              maxLife: lifetime * (0.6 + Math.random() * 0.4),
+            };
+          } else {
+            // Smoke — slow rise, large
+            return {
+              x: (Math.random() - 0.5) * 0.3,
+              y: Math.random() * 0.2,
+              z: (Math.random() - 0.5) * 0.3,
+              vx: (Math.random() - 0.5) * speed * 0.4,
+              vy: speed * (0.3 + Math.random() * 0.5),
+              vz: (Math.random() - 0.5) * speed * 0.4,
+              size: size * (1.5 + Math.random() * 2.0),
+              maxLife: lifetime * (0.8 + Math.random() * 0.4),
+            };
+          }
+        },
+        update: (p, v, lt, mlt, i, dt) => {
+          v[i * 3 + 1] -= 3.0 * dt; // gravity
+          // Air drag
+          v[i * 3] *= (1 - 0.5 * dt);
+          v[i * 3 + 1] *= (1 - 0.3 * dt);
+          v[i * 3 + 2] *= (1 - 0.5 * dt);
+          p[i * 3] += v[i * 3] * dt;
+          p[i * 3 + 1] += v[i * 3 + 1] * dt;
+          p[i * 3 + 2] += v[i * 3 + 2] * dt;
+        },
+        respawn: null,
+      },
+      // TASK-365: Smoke puff — slow rising, expanding particles
+      smoke: {
+        initParticle: (i) => {
+          const ang = Math.random() * Math.PI * 2;
+          const r = Math.random() * spread * 0.5;
+          return {
+            x: 0, y: 0, z: 0,
+            vx: Math.cos(ang) * r * speed * 0.3 + (Math.random() - 0.5) * 0.2,
+            vy: speed * (0.3 + Math.random() * 0.4),
+            vz: Math.sin(ang) * r * speed * 0.3 + dir.z * speed * 0.5,
+            size: size * (0.8 + Math.random() * 1.2),
+            maxLife: lifetime,
+          };
+        },
+        update: (p, v, lt, mlt, i, dt) => {
+          v[i * 3] *= (1 - 2.0 * dt); // heavy drag
+          v[i * 3 + 2] *= (1 - 2.0 * dt);
+          p[i * 3] += v[i * 3] * dt;
+          p[i * 3 + 1] += v[i * 3 + 1] * dt;
+          p[i * 3 + 2] += v[i * 3 + 2] * dt;
+        },
+        respawn: null,
+      },
+      // TASK-364: Projectile trail — continuous emission along direction
+      trail: {
+        initParticle: (i) => ({
+          x: (Math.random() - 0.5) * 0.05,
+          y: (Math.random() - 0.5) * 0.05,
+          z: (Math.random() - 0.5) * 0.05,
+          vx: (Math.random() - 0.5) * speed * 0.3,
+          vy: (Math.random() - 0.5) * speed * 0.3,
+          vz: (Math.random() - 0.5) * speed * 0.3,
+          size: size * (0.5 + Math.random() * 0.8),
+          maxLife: lifetime * (0.3 + Math.random() * 0.7),
+        }),
+        update: (p, v, lt, mlt, i, dt) => {
+          v[i * 3] *= (1 - 3.0 * dt);
+          v[i * 3 + 1] *= (1 - 3.0 * dt);
+          v[i * 3 + 2] *= (1 - 3.0 * dt);
+          p[i * 3] += v[i * 3] * dt;
+          p[i * 3 + 1] += v[i * 3 + 1] * dt;
+          p[i * 3 + 2] += v[i * 3 + 2] * dt;
+        },
+        respawn: (p, v, i) => {
+          p[i * 3] = (Math.random() - 0.5) * 0.05;
+          p[i * 3 + 1] = (Math.random() - 0.5) * 0.05;
+          p[i * 3 + 2] = (Math.random() - 0.5) * 0.05;
+          v[i * 3] = (Math.random() - 0.5) * speed * 0.3;
+          v[i * 3 + 1] = (Math.random() - 0.5) * speed * 0.3;
+          v[i * 3 + 2] = (Math.random() - 0.5) * speed * 0.3;
+        },
       },
     };
 

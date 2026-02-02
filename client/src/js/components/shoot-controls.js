@@ -197,7 +197,22 @@ AFRAME.registerComponent('shoot-controls', {
     });
 
     scene.appendChild(shell);
-    setTimeout(() => { if (shell.parentNode) shell.parentNode.removeChild(shell); }, 450);
+    // TASK-365: Spark on shell casing floor hit
+    setTimeout(() => {
+      if (shell.parentNode) {
+        const sp = new THREE.Vector3();
+        shell.object3D.getWorldPosition(sp);
+        // Tiny spark burst at landing position
+        const spark = document.createElement('a-sphere');
+        spark.setAttribute('radius', '0.005');
+        spark.setAttribute('position', `${sp.x} ${sp.y} ${sp.z}`);
+        spark.setAttribute('material', 'shader: flat; color: #ffcc44; opacity: 0.9; transparent: true');
+        spark.setAttribute('animation__fade', { property: 'material.opacity', to: 0, dur: 100 });
+        scene.appendChild(spark);
+        setTimeout(() => { if (spark.parentNode) spark.parentNode.removeChild(spark); }, 120);
+        shell.parentNode.removeChild(shell);
+      }
+    }, 450);
   },
 
   _shotgunHit(raycaster, weapon) {
@@ -323,6 +338,14 @@ AFRAME.registerComponent('shoot-controls', {
         count: 10, color, size: 0.03, speed: 4, lifetime: 80,
         spread: 0.3, direction: dir,
       });
+      // TASK-365: Smoke puff after shot (delayed slightly)
+      setTimeout(() => {
+        window.__spawnGPUBurst(scene, pos, {
+          preset: 'smoke', count: 6, color: '#888888', color2: '#555555',
+          size: 0.04, speed: 0.5, lifetime: 300, opacity: 0.25,
+          spread: 0.2, direction: dir,
+        });
+      }, 40);
     }
 
     // Visual flash sphere (entity-based, lightweight)

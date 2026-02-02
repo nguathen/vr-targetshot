@@ -1,6 +1,6 @@
 # Task Management
 
-> Last Updated: 2026-02-01
+> Last Updated: 2026-02-02
 > Purpose: Active work queue. Keep this file short.
 > [View Completed Tasks Archive](./tasks-archive.md)
 
@@ -12,7 +12,7 @@
 |--------|-------|
 | In Progress | 0 |
 | Pending | 0 |
-| Completed | 120 |
+| Completed | 133 |
 
 > V1–V13 — all completed (68 tasks).
 > **V14 Content & QoL Upgrade (TASK-270~277)** — completed.
@@ -25,6 +25,326 @@
 > **V21 Audio & Visual Polish (TASK-330~333)** — completed.
 > **V22 3D Graphics Upgrade (TASK-340~342)** — completed.
 > **V23 Tension & Thrill (TASK-350~355)** — completed.
+> **V24 Graphics Polish (TASK-360~362)** — completed.
+> **V25 VFX Enhancement (TASK-363~365)** — completed.
+> **V26 Game Feel & Audio Polish (TASK-366~368)** — completed.
+
+---
+
+## V27 — God Class Refactoring
+
+> **Goal:** Tách 2 god classes (target-system.js 3040 lines, audio-manager.js 1616 lines) thành modules nhỏ hơn. Facade pattern — giữ nguyên public API, tách logic nội bộ. Zero behavior change.
+
+## TASK-370: Refactor audio-manager.js — Extract Audio Modules
+**Priority:** High
+**Status:** Completed (2026-02-02)
+**Assigned:** /dev
+
+### Description
+Tách audio-manager.js (1616 lines, 80+ play methods) thành 5 modules. AudioManager giữ làm facade, delegate play methods sang sub-modules. Giữ nguyên `window.audioManager` singleton + tất cả method signatures.
+
+### Acceptance Criteria
+- [ ] Tạo `client/src/js/core/audio-weapons.js` — export mixin/object chứa: `playHit`, `playWeaponFire`, `playRailgunCharge`, `playRicochet`, `playMiss`
+- [ ] Tạo `client/src/js/core/audio-gameplay.js` — `playCombo`, `playComboSound`, `playComboLost`, `playSpawn`, `playTelegraph`, `playBossSpawn`, `playBossHit`, `playBossKill`, `playWaveClear`, `playPowerUp`, `playPowerUpEnd`, `playSlowMoHit`
+- [ ] Tạo `client/src/js/core/audio-tension.js` — `playBombTick`, `playBombExplode`, `playBombDefuse`, `playBombWarning`, `playHeartbeat`, `playLastStandRecover`, `playDarknessWarn`, `playDarknessStart`, `playOvertimeStart`, `playOvertimeTick`, `playChainBreak`, `playChainComplete`, `playArenaClose`, `playSurgeStart`, `playSurgeEnd`, `playDebuffApply`, `playDebuffClear`
+- [ ] Tạo `client/src/js/core/audio-ui.js` — `playUIHover`, `playUIClick`, `playUIToggle`, `playUIBack`, `playUIError`, `playSelect`, `playGameOver`, `playLevelUp`, `playLifeLost`, `playAchievement`, `playCountdown`, `playCountdownBeep`, `playGo`, `playDissolve`
+- [ ] **Kỹ thuật mixin**: Mỗi module export object `{ methodName(ctx, dest, ...) {} }`. AudioManager import + `Object.assign(AudioManager.prototype, ...modules)`. Các sub-methods nhận `this` context (access `_getCtx()`, `_getDest()`, `_pitchVar()`, `_canPlay()`, `_soundDone()`, `_triggerDuck()`)
+- [ ] `audio-manager.js` giữ: constructor, loadSettings, _getCtx, _setupReverb, _setupPriorityBuses, _getDest, _triggerDuck, _canPlay/_soundDone, _pitchVar, _createPanner, updateListener, destination getter, createTargetHum. Export `audioManager` singleton
+- [ ] **Zero API change**: `audioManager.playHit()` vẫn hoạt động y hệt, không thay đổi caller nào
+- [ ] Tất cả existing callers (target-system.js, game-main.js, tension-system.js, shoot-controls.js, etc.) không cần sửa
+- [ ] Mỗi sub-module file ≤ 400 lines
+- [ ] audio-manager.js facade ≤ 250 lines
+
+---
+
+## TASK-371: Refactor target-system.js — Extract Hazard Systems
+**Priority:** High
+**Status:** Completed (2026-02-02)
+**Assigned:** /dev
+
+### Description
+Tách các hệ thống hazard (projectiles, chargers, danger zones, scare balls, laser sweeps) ra khỏi target-system.js. Đây là nhóm lớn nhất (~800 lines) và có cohesion cao nội bộ.
+
+### Acceptance Criteria
+- [ ] Tạo `client/src/js/game/target-hazards.js` — class `TargetHazards` chứa:
+  - Projectiles: `_tryFireProjectile`, `_launchProjectile`, `_updateProjectiles`, `_onProjectileHit`, `_onProjectileDodged`, `_onShieldBlock`, `_checkProjectileFiring`
+  - Chargers: `_trySpawnCharger`, `_spawnCharger`, `_updateChargers`, `_onChargerContact`, `_onChargerKill`
+  - Danger Zones: `_trySpawnDangerZone`, `_spawnDangerZone`, `_spawnDangerEmbers`, `_updateDangerZones`
+  - Scare Balls: `_tryLaunchScareBall`, `_launchScareBall`, `_updateScareBalls`, `_onScareBallHit`, `_onScareBallDodge`
+  - Laser Sweeps: `_tryLaunchLaserSweep`, `_launchLaserSweep`, `_updateLaserSweeps`, `_onLaserHit`, `_onLaserDodge`
+- [ ] `TargetHazards` constructor nhận reference tới `TargetSystem` (access `_container`, `_running`, `_onPlayerDamage`, `audioManager`, etc.)
+- [ ] `TargetSystem` khởi tạo `this._hazards = new TargetHazards(this)` và delegate calls
+- [ ] Update tick/update methods trong TargetSystem để call `this._hazards.update(dt)`
+- [ ] **Zero behavior change**: tất cả hazard mechanics hoạt động y hệt
+- [ ] target-system.js giảm ~800 lines
+- [ ] target-hazards.js ≤ 900 lines
+
+---
+
+## TASK-372: Refactor target-system.js — Extract Special Targets
+**Priority:** Medium
+**Status:** Completed (2026-02-02)
+**Assigned:** /dev
+
+### Description
+Tách special target logic (melee/punch, rhythm, color-match, blink) ra khỏi target-system.js.
+
+### Acceptance Criteria
+- [ ] Tạo `client/src/js/game/target-specials.js` — class `TargetSpecials` chứa:
+  - Melee: `_spawnMeleeTarget`, `_updatePunchDetection`, `_onPunchHit`
+  - Rhythm: `_updateRhythmBeat` + rhythm spawn logic
+  - Color-match: `_updateColorMatch`, `_rotateColorMatch`, `_spawnColorMatchTarget`
+  - Blink: `_updateBlinkTargets`
+- [ ] `TargetSpecials` constructor nhận reference tới `TargetSystem`
+- [ ] `TargetSystem` delegate: `this._specials = new TargetSpecials(this)`
+- [ ] **Zero behavior change**
+- [ ] target-system.js giảm thêm ~400 lines
+- [ ] target-specials.js ≤ 500 lines
+
+---
+
+## TASK-373: Refactor target-system.js — Extract Spawner & Feedback
+**Priority:** Medium
+**Status:** Completed ✅ (2026-02-02)
+**Assigned:** /dev
+
+### Description
+Tách spawn logic và feedback system ra khỏi target-system.js. Sau task này, target-system.js facade chỉ còn ~600 lines (constructor, configure, start/stop, _onTargetHit dispatch, tick loop).
+
+### Acceptance Criteria
+- [x] Tạo `client/src/js/game/target-spawner.js` — class `TargetSpawner` (786 lines):
+  - `pickTargetType`, `spawnTarget`, `spawnTargetAt`, `spawnTelegraph`, `spawnBombWarning`, `_applyPrimitiveMaterial`, `createEventTarget`
+  - `_pickMovementPattern`, `_applyMovementPattern`, `pick360Position`, `pickPeripheralPosition`
+  - Exports `TARGET_TYPES` constant
+- [x] Tạo `client/src/js/game/target-feedback.js` — class `TargetFeedback` (~233 lines):
+  - `triggerComboLost`, `triggerWaveEvent`, `spawnDamageNumber`, `flashScreen`, `triggerSlowMotion`, `spawnMultiplierZone`, `getZoneMultiplier`
+- [x] `TargetSystem` facade delegate: `this._spawner`, `this._feedback`
+- [x] **Zero behavior change**
+- [x] target-system.js facade: 691 lines ≤ 800 ✓
+- [x] target-spawner.js: 786 lines (~700 target; ~45 lines are data constants, remainder is procedural DOM)
+- [x] target-feedback.js: ~233 lines ≤ 400 ✓
+
+---
+
+## V26 — Game Feel & Audio Polish
+
+> **Goal:** Nâng cấp feedback loop: audio ducking khi nhiều SFX đồng thời, combo reset feedback khi mất combo cao, bomb spawn warning telegraph. Từ "functional audio" → "polished, layered audio-visual feedback".
+
+## TASK-366: Audio Ducking System
+**Priority:** High
+**Status:** Completed (2026-02-02)
+**Assigned:** /dev
+
+### Description
+Khi nhiều SFX fire đồng thời (bomb explode + combo chime + weapon fire + music), tất cả play ở full volume → audio saturation, muddy mix. Cần hệ thống ducking tự động giảm volume SFX thấp priority khi SFX cao priority đang play.
+
+### Acceptance Criteria
+- [ ] **Priority system** trong audio-manager.js: gán priority cho mỗi sound category:
+  - P0 (Critical): bombExplode, bossKill, playerDamage — KHÔNG bị duck
+  - P1 (High): weaponFire, hit, combo chime — duck nhẹ (-3dB) khi P0 active
+  - P2 (Low): ricochet, shellCasing, ambientHum — duck mạnh (-8dB) khi P0/P1 active
+- [ ] **Duck mechanism**: Khi P0 sound plays, tạo GainNode reduction cho P1/P2 channels. Fade reduction in 20ms, fade out 200ms sau khi P0 sound ends
+- [ ] **Implementation**: Tạo 3 GainNode buses (critical, high, low) nối vào masterGain. Route mỗi sound qua bus tương ứng. Khi P0 fires → ramp P1 bus gain to 0.7, P2 bus gain to 0.4 over 20ms. Restore over 200ms
+- [ ] **Music ducking**: Khi P0 sound plays, duck music masterGain to 0.5 over 50ms, restore over 500ms
+- [ ] **Concurrent sound limit**: Max 8 simultaneous sounds. Khi vượt, drop P2 sounds đầu tiên
+- [ ] **Performance**: GainNode operations = zero-cost (Web Audio native). Không thêm processing overhead
+
+---
+
+## TASK-367: Combo Reset Feedback
+**Priority:** Medium
+**Status:** Completed (2026-02-02)
+**Assigned:** /dev
+
+### Description
+Khi player có combo cao (>10) rồi miss → combo drops về 0 silently. Không có audio/visual feedback cho moment quan trọng này. Cần "combo lost" feedback tỉ lệ với combo đã mất.
+
+### Acceptance Criteria
+- [ ] **Detect high combo loss**: Trong target-system.js, tại tất cả chỗ `this._combo = 0`, check combo trước khi reset:
+  - `if (prevCombo >= 10)` → trigger combo-lost feedback
+  - `if (prevCombo >= 25)` → trigger enhanced combo-lost feedback
+- [ ] **Audio**: Tạo `playComboLost(level)` trong audio-manager.js:
+  - Level 1 (combo 10-24): descending 3-note chime (C5→A4→F4), 150ms, gain 0.2
+  - Level 2 (combo 25+): descending 5-note (C5→Bb4→Ab4→F4→D4) + low rumble, 300ms, gain 0.25
+- [ ] **Visual**: Dispatch `combo-lost` CustomEvent với detail `{ lostCombo: prevCombo }`:
+  - HUD text flash: "COMBO LOST!" in red, fade out 800ms (reuse damage-number pattern)
+  - Camera micro-shake: intensity 0.01, duration 150ms (subtle, via camera-effects.js)
+- [ ] **Cooldown**: Max 1 combo-lost feedback per 3 seconds (prevent spam from rapid resets)
+- [ ] **Tension integration**: Combo loss khi combo ≥15 → trigger debuff chance (20%) via tensionSystem.activateDebuff()
+- [ ] **Settings**: Respect `settings.screenShake` toggle for camera shake
+
+---
+
+## TASK-368: Bomb Spawn Warning Telegraph
+**Priority:** Medium
+**Status:** Completed (2026-02-02)
+**Assigned:** /dev
+
+### Description
+Bomb targets xuất hiện đột ngột — player không có thời gian chuẩn bị. Cần warning telegraph 0.8s trước khi bomb thực sự spawn, cho player biết vị trí sắp xuất hiện bomb.
+
+### Acceptance Criteria
+- [ ] **Pre-spawn warning**: Trong target-system.js, khi `_resolveTargetType()` returns 'bomb':
+  - Trước khi spawn bomb entity, tạo warning indicator tại spawn position
+  - Warning hiển thị 800ms, sau đó spawn bomb thật
+- [ ] **Warning visual**: Tại spawn position:
+  - Pulsing red ring (a-ring): radius 0.3→0.6, opacity 0.5→0, 800ms animation
+  - Red "⚠" text label: look-at camera, scale 0.3, fade in→out
+  - Red point light: intensity 1, distance 3, 800ms decay
+- [ ] **Warning audio**: Play `playBombWarning()` — ascending 2-note alert (F5→A5), 200ms, gain 0.2. Tạo method mới trong audio-manager.js
+- [ ] **HUD indicator**: Dispatch `bomb-incoming` event → target-indicator.js hiển thị flashing red arrow pointing toward bomb spawn location
+- [ ] **Timing**: Warning 800ms → spawn bomb (3s countdown bắt đầu) → total player có 3.8s để react
+- [ ] **Performance**: 1 ring + 1 text + 1 light = 3 entities, auto-cleanup after 800ms
+- [ ] **Skip nếu bomb spawn gần player**: Nếu spawn distance < 3m, giảm warning time xuống 400ms (close-range urgency)
+
+---
+
+## V25 — VFX Enhancement (Explosions, Projectile Trails, Muzzle Smoke)
+
+> **Goal:** Nâng cấp hiệu ứng visual: explosion fireball cho bomb, trail lửa cho projectile bay vào mặt player, smoke sau mỗi shot. Từ "basic particles" → "cinematic VFX". Fix bug critical: `explosion` preset không tồn tại.
+
+## TASK-363: Explosion Preset + Fireball Effect
+**Priority:** High (fix critical bug)
+**Status:** Completed (2025-02-02)
+**Assigned:** /dev
+
+### Description
+Bomb target trong tension-system.js gọi `__spawnGPUBurst({ preset: 'explosion' })` nhưng preset `explosion` **KHÔNG TỒN TẠI** trong gpu-particles.js (chỉ có: ambient, rain, dust, bubbles, starfield, burst, muzzle, powerup). Cần tạo preset mới + nâng cấp bomb explosion VFX.
+
+### Acceptance Criteria
+- [ ] **Tạo `explosion` preset** trong gpu-particles.js:
+  - Core layer: 20 particles, spherical burst, yellow→white (#ffcc00→#ffffff), size 0.08, speed 3, lifetime 300ms, gravity -2
+  - Fire layer: 30 particles, spherical, orange→red (#ff6600→#ff2200), size 0.12, speed 2, lifetime 500ms, gravity -1, additive blend
+  - Smoke layer: 15 particles, upward drift, gray (#444444), size 0.15, speed 0.5, lifetime 800ms, opacity 0.3→0
+- [ ] **Shrapnel debris**: 8 particles, high speed (5-8), tiny (0.02), metallic color, gravity 6 (fall fast), lifetime 600ms
+- [ ] **Ground scorch mark**: Tạo a-circle tại vị trí nổ, radius 0.5, black opacity 0.3, fade out over 3s. Max pool 5 marks
+- [ ] **Flash light**: PointLight intensity 5, distance 8, decay over 200ms (tái sử dụng pattern từ target-hit.js)
+- [ ] **Camera shake**: intensity 0.04, duration 300ms (đã có trong tension-system.js, verify)
+- [ ] **Performance**: Tổng ~73 particles per explosion. One-shot, auto-cleanup. Quest 2 safe
+- [ ] **Cũng dùng cho boss kill**: Boss destroy trigger `explosion` preset với scale 2x
+
+---
+
+## TASK-364: Projectile Trail + Warning Telegraph
+**Priority:** High
+**Status:** Completed (2025-02-02)
+**Assigned:** /dev
+
+### Description
+Projectile (đạn enemy bay vào mặt player) hiện chỉ là sphere cam nhỏ (0.04 radius) + ring xoay. Không có trail, không có warning trước khi bắn. Player khó thấy và khó né.
+
+### Acceptance Criteria
+- [ ] **Fire trail**: Attach GPU particle emitter vào projectile entity. Emit 3-5 particles mỗi 50ms dọc theo path. Color: orange→red, size 0.04→0.01 (shrink), lifetime 200ms, additive blend. Kỹ thuật: spawn `__spawnGPUBurst` tại projectile position mỗi 50ms với count=3, speed=0.5 (gần như đứng yên → tạo trail)
+- [ ] **Warning telegraph**: 0.5s trước khi bắn, hiển thị:
+  - Red pulsing ring (a-ring) trên target đang chuẩn bị bắn, radius 0.3, opacity pulse 0.3→0.8
+  - HUD warning indicator: red "⚠" text flash tại hướng target (reuse target-indicator logic)
+  - Audio: short warning beep (reuse `playBombTick` hoặc similar)
+- [ ] **Enhanced projectile visual**: Thay sphere đơn giản bằng:
+  - Core: emissive sphere 0.04 radius, orange (#ff6600), intensity 2.0
+  - Outer glow: larger sphere 0.08 radius, same color, opacity 0.2, shader flat
+  - Spinning ring giữ nguyên (đã có)
+- [ ] **Impact explosion on hit**: Khi projectile trúng player:
+  - Trigger `explosion` preset (TASK-363) tại camera position, scale 0.5x
+  - Camera shake intensity 0.03, duration 200ms
+  - Haptic burst 0.5 intensity, 100ms
+- [ ] **Impact explosion on miss**: Khi projectile hết lifetime (5s) hoặc bay quá xa:
+  - Small burst tại last position (preset `burst`, count 10, color red)
+- [ ] **Performance**: Trail = ~3 particles × 20 ticks/sec × max 3 projectiles = ~180 particles/sec. Quest 2 safe
+- [ ] **Settings**: Respect `settings.particles` toggle
+
+---
+
+## TASK-365: Muzzle Smoke + Enhanced Shell Casing
+**Priority:** Low
+**Status:** Completed (2025-02-02)
+**Assigned:** /dev
+
+### Description
+Sau mỗi shot chỉ có flash sphere + GPU burst. Thêm smoke puff nhẹ và cải thiện shell casing visual.
+
+### Acceptance Criteria
+- [ ] **Smoke puff**: Sau mỗi shot, spawn 5 particles tại muzzle position:
+  - Color: light gray (#aaaaaa), opacity 0.15→0
+  - Size: 0.02→0.06 (grow), lifetime 400ms
+  - Drift: upward (y+0.5) + slight random spread
+  - Kỹ thuật: Tạo `smoke` preset trong gpu-particles.js hoặc inline config cho `__spawnGPUBurst`
+- [ ] **Rate limit**: Max 1 smoke puff per 150ms (prevent SMG spam)
+- [ ] **Shell casing spark**: Khi shell casing rơi xuống floor (y<0.1), spawn 2 tiny spark particles (orange, 50ms lifetime). Detect via timeout estimate (shell eject duration ~400ms)
+- [ ] **Performance**: 5 particles × ~3 shots/sec = ~15 particles/sec. Negligible
+- [ ] **Settings**: Respect `settings.muzzleFlash` toggle (reuse existing)
+
+---
+
+## V24 — Graphics Polish (VR Post-Processing, Shadows, Batching)
+
+> **Goal:** Làm cho post-processing (color grading, tone mapping, vignette, damage flash) hoạt động trong VR mode trên Quest 2. Tối ưu shadows và giảm draw calls. Từ "flat VR" → "polished VR with proper grading".
+
+## TASK-360: VR-Compatible Post-Processing
+**Priority:** High
+**Status:** ✅ Completed (2026-02-02)
+**Assigned:** /dev
+
+### Description
+Hiện tại toàn bộ bloom-effect pipeline bị skip khi `renderer.xr.isPresenting` (line 162-167). Player trên Quest 2 không thấy color grading, tone mapping, vignette, hay damage flash. Cần enable các effects nhẹ trong VR mà không cần custom render targets.
+
+**Approach:** Sử dụng Three.js built-in tone mapping cho VR + overlay entities cho vignette/flash.
+
+### Acceptance Criteria
+- [ ] **VR Tone Mapping**: Khi XR session active, set `renderer.toneMapping = THREE.ACESFilmicToneMapping` và `renderer.toneMappingExposure` theo theme preset. Khi exit XR, restore về `NoToneMapping` (để custom pipeline handle)
+- [ ] **VR Color Grading**: Không thể dùng post-process trong VR → thay vì per-pixel grading, adjust scene lights + ambient color per theme để approximate color temperature/saturation effect. Modify `applyTheme()` để tăng/giảm light color intensity matching grading presets
+- [ ] **VR Vignette**: Tạo `#vr-vignette` entity — a-plane gắn vào camera (z=-0.5), transparent, radial gradient texture (canvas-generated). Chỉ visible khi XR presenting. Uniform `opacity` controlled bằng same `uVignetteIntensity` logic
+- [ ] **VR Damage Flash**: Tạo `#vr-damage-flash` entity — a-plane gắn vào camera, material `color: red; opacity: 0`. Khi `player-damage` event → animate opacity 0→0.3→0 over 300ms. Same cho kill flash (white, 0→0.1→0, 100ms)
+- [ ] **VR Low-HP Pulse**: Vignette overlay opacity oscillates 0.1→0.3 at 1Hz khi HP ≤ 1
+- [ ] **Detect XR state change**: Listen `renderer.xr` events (`sessionstart`, `sessionend`) để toggle giữa custom pipeline vs built-in tone mapping
+- [ ] **Per-theme exposure**: Áp dụng `toneMappingExposure` values: cyber=1.0, sunset=1.1, space=0.9, underwater=0.85, neon=1.05, day=1.15
+- [ ] **bloom-effect.js** vẫn handle desktop post-processing bình thường. Chỉ thêm VR fallback path
+- [ ] Performance: Overlay entities = 2 planes, no extra render targets. Quest 2 safe
+- [ ] Settings: Respect existing `settings.vignette`, `settings.colorGrading`, `settings.damageFlash`
+
+---
+
+## TASK-361: Shadow Optimization
+**Priority:** Medium
+**Status:** ✅ Completed (2026-02-02)
+**Assigned:** /dev
+
+### Description
+Shadow camera hiện cover ±20 units (40x40 area) cho shadow map 1024x1024. Arena chỉ 32x32 và player hầu như ở giữa. Thu nhỏ shadow frustum + follow player = shadow detail tăng đáng kể.
+
+### Acceptance Criteria
+- [ ] **Shrink shadow bounds**: `shadowCameraLeft/Right/Top/Bottom` từ ±20 → ±12. Effective texel density tăng ~2.8x (20/12)²
+- [ ] **Dynamic shadow follow**: Trong `environment-themes.js` hoặc `game-main.js`, mỗi frame (throttle 500ms) update shadow light target position = camera world position (clamped to arena bounds ±10)
+- [ ] **Shadow bias tuning**: Set `shadow.bias = -0.001` và `shadow.normalBias = 0.02` để giảm shadow acne trên metallic surfaces
+- [ ] **Shadow map size**: Giữ 1024x1024 (Quest 2 safe). Comment option 2048x2048 cho Quest 3
+- [ ] **Performance**: Shadow update throttle 500ms = 2 shadow recalc/second thay vì every frame
+- [ ] **Fallback**: Nếu `settings.shadows === false`, disable hoàn toàn (hiện có nhưng verify)
+
+---
+
+## TASK-362: Draw Call Batching — Merge Distant Environment
+**Priority:** Medium
+**Status:** ✅ Completed (2026-02-02)
+**Assigned:** /dev
+
+### Description
+Mỗi theme spawn 15-30 A-Frame entities cho `distantEnv` + `belowEnv` (buildings, stars, coral, nebulae...). Mỗi entity = 1 draw call. Merge static geometries thành batched meshes để giảm draw calls.
+
+### Acceptance Criteria
+- [ ] Tạo function `_batchStaticDecorations(items)` trong `environment-themes.js`
+- [ ] **Geometry merging**: Group items theo material type:
+  - Group 1: PBR metallic objects (buildings, asteroids, coral) → merge geometry, share single MeshStandardMaterial
+  - Group 2: Flat shader objects (stars, nebulae, grid lines) → merge, share single MeshBasicMaterial
+  - Group 3: Animated objects (rotating asteroids, whale, kelp sway) → KHÔNG merge, giữ riêng
+- [ ] **Implementation**: Sử dụng `THREE.BufferGeometryUtils.mergeGeometries()`:
+  - Parse A-Frame entity definitions → create Three.js geometries with transforms applied
+  - Merge per group → tạo single `THREE.Mesh` per group
+  - Attach vào `#distant-env` hoặc `#below-void` container
+- [ ] **Animated objects**: Detect items có `animation` attribute → exclude from merge, spawn as normal A-Frame entities
+- [ ] **Target**: Giảm draw calls từ ~25 → ~5 per theme cho static decorations
+- [ ] **Theme switch**: Khi theme change, dispose old batched meshes, generate new ones
+- [ ] **Performance**: Batch generation < 50ms. Single-frame operation (không async)
+- [ ] **Fallback**: Nếu `mergeGeometries` fail (missing util) → fallback về current entity spawning
+- [ ] **Import**: `BufferGeometryUtils` từ Three.js examples — vendor hoặc inline utility function
 
 ---
 

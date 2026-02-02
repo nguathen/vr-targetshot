@@ -1,7 +1,7 @@
 # Architecture
 
 > Status: Active
-> Last Updated: 2026-01-30
+> Last Updated: 2026-02-02
 
 ---
 
@@ -38,60 +38,94 @@
 ## 3. Directory Structure
 
 ```
-vr/
+game-vr/
 ├── client/                        # Frontend (Vite + A-Frame)
 │   ├── src/
-│   │   ├── index.html             # Entry point - Main Menu + Game (SPA)
+│   │   ├── index.html             # Entry point — Main Menu + Game (SPA)
 │   │   ├── game.html              # Game scene (alternate entry)
 │   │   ├── shop.html              # IAP Shop page
 │   │   ├── settings.html          # Settings page
 │   │   ├── stats.html             # Stats dashboard
 │   │   ├── tutorial.html          # Interactive tutorial
 │   │   ├── friends.html           # Friends list
+│   │   ├── leaderboard.html       # Leaderboard page
 │   │   ├── privacy.html           # Privacy policy
-│   │   ├── manifest.json          # PWA manifest
+│   │   ├── manifest.json          # PWA manifest (ovr_package_name, scope)
 │   │   ├── css/
 │   │   │   └── style.css          # UI styling
 │   │   ├── js/
 │   │   │   ├── main.js            # SPA entry point, menu, navigation
 │   │   │   ├── game-main.js       # Game loop, HUD, countdown, game over
+│   │   │   ├── shop-main.js       # Shop page entry point
+│   │   │   ├── settings-main.js   # Settings page entry point
+│   │   │   ├── stats-main.js      # Stats page entry point
+│   │   │   ├── tutorial-main.js   # Tutorial page entry point
+│   │   │   ├── friends-main.js    # Friends page entry point
+│   │   │   ├── leaderboard-main.js # Leaderboard page entry point
+│   │   │   │
 │   │   │   ├── core/
-│   │   │   │   ├── game-manager.js    # Game state machine
-│   │   │   │   ├── audio-manager.js   # Procedural SFX (Web Audio)
-│   │   │   │   ├── music-manager.js   # Procedural BGM per theme
-│   │   │   │   ├── auth-manager.js    # Firebase auth + profile
-│   │   │   │   ├── firebase-config.js # Firebase config
-│   │   │   │   ├── friend-manager.js  # Friend codes + social
+│   │   │   │   ├── game-manager.js      # Game state machine
+│   │   │   │   ├── audio-manager.js     # Procedural SFX (Web Audio) + reverb
+│   │   │   │   ├── music-manager.js     # Procedural adaptive BGM per theme
+│   │   │   │   ├── auth-manager.js      # Firebase auth + profile
+│   │   │   │   ├── firebase-config.js   # Firebase config
+│   │   │   │   ├── friend-manager.js    # Friend codes + social
 │   │   │   │   ├── leaderboard-manager.js # Global leaderboard
-│   │   │   │   └── vr-util.js         # VR utility helpers
+│   │   │   │   ├── haptic-manager.js    # Controller vibration system
+│   │   │   │   ├── error-handler.js     # Global error handling + recovery (V15)
+│   │   │   │   └── vr-util.js           # VR utility helpers
+│   │   │   │
 │   │   │   ├── game/
-│   │   │   │   ├── target-system.js   # Target spawning + hit detection
-│   │   │   │   ├── score-manager.js   # Score + accuracy tracking
-│   │   │   │   ├── game-modes.js      # Mode definitions + lives
-│   │   │   │   ├── weapon-system.js   # Weapon stats + selection
-│   │   │   │   ├── weapon-skins.js    # Cosmetic skin overrides
-│   │   │   │   ├── achievements.js    # Achievement checks
-│   │   │   │   ├── daily-challenge.js # Daily challenge progress
-│   │   │   │   ├── environment-themes.js # Theme visuals
-│   │   │   │   ├── game-summary.js    # End-game stats builder
-│   │   │   │   ├── power-up-manager.js # Power-up buff system
-│   │   │   │   └── settings-util.js   # Settings read helper
-│   │   │   ├── core/
-│   │   │   │   ├── ...
-│   │   │   │   └── haptic-manager.js  # Controller vibration system
+│   │   │   │   ├── target-system.js     # Target spawning + hit detection + boss rush
+│   │   │   │   ├── target-models.js     # Procedural GLTF model generation (V20)
+│   │   │   │   ├── score-manager.js     # Score + accuracy tracking
+│   │   │   │   ├── game-modes.js        # Mode definitions + lives
+│   │   │   │   ├── weapon-system.js     # Weapon stats + selection (5 weapons)
+│   │   │   │   ├── weapon-skins.js      # Cosmetic skin overrides
+│   │   │   │   ├── weapon-tutorial.js   # Per-weapon tutorial steps (V15)
+│   │   │   │   ├── achievements.js      # Achievement checks (25 milestones)
+│   │   │   │   ├── achievement-toast.js # Achievement notification toasts (V17)
+│   │   │   │   ├── daily-challenge.js   # Daily challenge progress
+│   │   │   │   ├── weekly-challenge.js  # Weekly rotating seasonal events (V14)
+│   │   │   │   ├── environment-themes.js # Theme visuals (6 themes)
+│   │   │   │   ├── weather-system.js    # Weather particles per theme (V13)
+│   │   │   │   ├── arena-reactions.js   # Arena lights/shake on events (V13)
+│   │   │   │   ├── game-summary.js      # End-game stats builder
+│   │   │   │   ├── power-up-manager.js  # Power-up buff system (6 power-ups)
+│   │   │   │   ├── rank-system.js       # Bronze → Diamond tier system (V17)
+│   │   │   │   ├── tension-system.js    # Last Stand, bombs, darkness, overtime (V23)
+│   │   │   │   ├── unlock-tooltips.js   # First-unlock VR popups (V15)
+│   │   │   │   └── settings-util.js     # Settings read helper
+│   │   │   │
 │   │   │   ├── iap/
-│   │   │   │   ├── iap-manager.js     # Purchase flow (Meta DG / dev)
-│   │   │   │   └── iap-products.js    # Product definitions
-│   │   │   ├── components/            # A-Frame components (non-module)
-│   │   │   │   ├── shoot-controls.js  # VR trigger → raycaster shoot
-│   │   │   │   ├── target-hit.js      # Target hit reaction + particles
-│   │   │   │   ├── particle-burst.js  # Particle burst effect
-│   │   │   │   ├── damage-number.js   # Floating damage numbers
+│   │   │   │   ├── iap-manager.js       # Purchase flow (Meta DG / dev fallback)
+│   │   │   │   └── iap-products.js      # Product definitions
+│   │   │   │
+│   │   │   ├── components/              # A-Frame components (non-module, <script>)
+│   │   │   │   ├── shoot-controls.js    # VR trigger → raycaster shoot
+│   │   │   │   ├── hand-shoot.js        # Hand tracking pinch-to-shoot (V20)
+│   │   │   │   ├── hand-shield.js       # Hand tracking shield gesture (V20)
+│   │   │   │   ├── target-hit.js        # Target hit reaction + particles
+│   │   │   │   ├── target-indicator.js  # Off-screen target direction indicator
+│   │   │   │   ├── particle-burst.js    # Entity-based particle burst (legacy)
+│   │   │   │   ├── gpu-particles.js     # GPU-accelerated particle system (V20)
+│   │   │   │   ├── ambient-particles.js # Ambient floating particles
+│   │   │   │   ├── dissolve-effect.js   # Perlin noise dissolve shader (V20)
+│   │   │   │   ├── bloom-effect.js      # Post-processing bloom + vignette + color grading
+│   │   │   │   ├── env-reflections.js   # Procedural cubemap reflections (V22)
+│   │   │   │   ├── camera-effects.js    # Camera shake, micro-shake, tilt
+│   │   │   │   ├── crosshair-feedback.js # Dynamic crosshair hit/kill feedback
+│   │   │   │   ├── combo-popup.js       # Combo milestone popup
+│   │   │   │   ├── damage-number.js     # Floating damage numbers
+│   │   │   │   ├── weapon-model.js      # 3D weapon model + muzzle flash
 │   │   │   │   ├── smooth-locomotion.js # Thumbstick movement
-│   │   │   │   └── menu-button.js     # VR menu button component
+│   │   │   │   ├── teleport-pad.js      # Teleport locomotion pads
+│   │   │   │   └── menu-button.js       # VR menu button component
+│   │   │   │
 │   │   │   └── ui/
-│   │   │       ├── animations.js      # staggerIn, countUp, pulse
-│   │   │       └── toast.js           # Toast notifications
+│   │   │       ├── animations.js        # staggerIn, countUp, pulse
+│   │   │       └── toast.js             # Toast notifications
+│   │   │
 │   │   └── assets/
 │   │       ├── models/
 │   │       ├── sounds/
@@ -99,31 +133,47 @@ vr/
 │   ├── public/                    # Static assets (copied to dist/)
 │   │   ├── .well-known/
 │   │   │   └── assetlinks.json    # Android app links verification
-│   │   └── js/components/         # A-Frame components (mirror of src)
+│   │   └── js/components/         # A-Frame components (mirror of src, synced by deploy script)
 │   ├── dist/                      # Build output (gitignored)
 │   ├── vite.config.js             # Vite build config
 │   └── package.json               # Client deps (firebase, vite)
 │
 ├── server/                        # Backend (Express.js)
-│   ├── index.js                   # Express server, serves client/dist/
+│   ├── index.js                   # Express server, serves client/dist/, /api/health
 │   ├── routes/
 │   │   └── iap.js                 # IAP endpoints (Stripe + dev mode)
 │   ├── db/
 │   │   └── database.js            # JSON file DB (purchases.json)
-│   ├── .env.example               # Environment variables template
 │   └── package.json               # Server deps (express, cors, dotenv)
 │
 ├── quest-wrapper/                 # Android TWA wrapper (Gradle)
 │   ├── app/
-│   │   ├── build.gradle           # TWA config (hostname, versionCode)
-│   │   └── src/
+│   │   ├── build.gradle           # TWA config (hostname, versionCode, deps)
+│   │   └── src/main/
+│   │       ├── AndroidManifest.xml # Quest VR manifest + billing components
+│   │       ├── java/com/nvr/vrquest/
+│   │       │   ├── LauncherActivity.java   # TWA launcher
+│   │       │   ├── DelegationService.java  # Billing + Platform SDK handlers
+│   │       │   └── Application.java
+│   │       └── res/
+│   │           ├── values/strings.xml      # Asset statements (domain verification)
+│   │           ├── drawable/splash.png
+│   │           └── mipmap-hdpi/ic_launcher.png
+│   ├── build.gradle               # Root build (AGP 8.7.3)
+│   ├── gradlew.bat                # Gradle wrapper (portable build)
 │   ├── settings.gradle
-│   └── release.keystore           # APK signing key (gitignored)
+│   ├── gradle.properties          # AndroidX config
+│   ├── ovr-platform-util.exe      # Meta Store upload tool
+│   └── upload.ps1                 # Upload script
 │
+├── docs/                          # Documentation
+│   └── BUILD-AND-DEPLOY.md       # Build APK & deploy to Quest 2 guide
+├── store-assets/                  # Meta Store images (icon, covers, screenshots)
 ├── .claude/                       # Claude Code configuration
 ├── specs/                         # Specifications and tracking
 ├── package.json                   # Root orchestrator (npm scripts)
-├── quest-deploy.ps1               # Build + deploy to Quest via ADB
+├── quest-deploy.ps1               # Full deploy: build + APK + ADB install
+├── build-apk.ps1                  # Simple APK build + install
 ├── purchases.json                 # Purchase records (gitignored)
 └── .gitignore
 ```
@@ -180,6 +230,81 @@ vr/
 - Visual scaling: boss size grows with wave (1.0→2.0), color tiers (red→orange→purple→gold)
 - Events: `boss-spawn`, `boss-damaged`, `boss-killed`, `boss-wave-clear`
 - Audio: bossSpawn (rumble), bossHit (clang), bossKill (explosion+chime)
+
+### WeatherSystem (weather-system.js) — V13
+- Per-theme weather particles: neon rain (cyber), dust (sunset), stars (space), bubbles (underwater)
+- Object-pooled particle entities
+- Settings: `settings.weather` toggle
+
+### ArenaReactions (arena-reactions.js) — V13
+- Arena lights/shake respond to gameplay events (kills, combos, boss, damage)
+- Subtle intensity — motion sickness safe
+
+### WeaponTutorial (weapon-tutorial.js) — V15
+- Per-weapon tutorial steps triggered on first weapon unlock
+- Shotgun spread, sniper precision, SMG burst timing, railgun charge
+
+### ErrorHandler (error-handler.js) — V15
+- `window.onerror` + `unhandledrejection` → user-friendly error overlay with retry
+- WebXR session loss recovery
+
+### RankSystem (rank-system.js) — V17
+- Tier progression: Bronze → Silver → Gold → Platinum → Diamond
+- XP-based ranking from game scores
+
+### AchievementToast (achievement-toast.js) — V17
+- VR toast notifications when achievements unlock
+- Animated popup with icon + description
+
+### WeeklyChallenge (weekly-challenge.js) — V14
+- Weekly rotating challenge with bonus XP/coins
+- Seasonal event system
+
+### TargetModels (target-models.js) — V20
+- Procedural GLTF model generation using Three.js BufferGeometry export
+- Per-type models: beveled cube (standard), arrow (speed), armored sphere (heavy), coin (bonus), etc.
+- Generated on first load, cached in memory
+
+### GPU Particles (gpu-particles.js) — V20
+- GPU-accelerated particle system replacing manual entity spawning
+- Weather, target destruction, muzzle flash, ambient particles
+- Exposed as `window.__spawnGPUBurst` for non-module components
+
+### DissolveEffect (dissolve-effect.js) — V20
+- Custom ShaderMaterial with Perlin noise dissolve on target destruction
+- 400ms dissolve with edge glow + particle emission
+- Settings: `settings.dissolveEffect` toggle
+
+### Hand Tracking (hand-shoot.js, hand-shield.js) — V20
+- Quest 2/3 hand tracking via `hand-tracking-controls`
+- Pinch-to-shoot (right hand), menu interaction (left hand)
+- Auto-detect controller vs hand tracking, seamless switching
+- Aim assist: 1.5x hitbox when using hands
+
+### MusicManager (music-manager.js) — V21
+- Procedural adaptive music (Web Audio oscillators, no audio files)
+- 4 intensity layers: ambient → active → combat → frenzy
+- Per-theme tonal palette, BPM sync
+- API: `start(theme)`, `stop()`, `setIntensity(level)`, `getBPM()`
+
+### Post-Processing Pipeline (bloom-effect.js) — V21-V22
+- 4-pass bloom + vignette + damage flash + kill flash + color grading
+- ACES tone mapping, per-theme color temperature/saturation/contrast
+- Low-HP pulsing vignette
+- VR-safe: separate fullscreen quad for XR mode
+
+### Environment Reflections (env-reflections.js) — V22
+- Procedural cubemap via PMREMGenerator for metallic surfaces
+- Per-theme cubemap colors, selective envMapIntensity per material type
+- Canvas-generated floor normal maps (hex grid, tiles, circuit traces)
+
+### TensionSystem (tension-system.js) — V23
+- **Last Stand**: HP=1 → desaturate, heartbeat, micro-shake. 5 consecutive hits = +1 HP recovery
+- **Bomb Targets**: 3s countdown, miss = explosion damage, chain explosion near decoys
+- **Chain Lightning Combo**: Combo ≥15 = 1.5x spawn rate, ≥25 = ordered chain targets
+- **Darkness Wave**: Every 60s, arena goes dark for 10s, targets glow, 2x kill points
+- **Rival Ghost**: Ghost replay of high-score run, ahead/behind indicator
+- **Sudden Death Overtime**: Timer=0 + score ≥ 80% PB = 10s overtime, hit=+1s, miss=-2s
 
 ---
 
@@ -244,6 +369,7 @@ Score + Retry         Item → Save
 
 | Method | Path | Description |
 |--------|------|-------------|
+| GET | /api/health | Server health check (used by deploy script) |
 | GET | /api/products | Danh sách IAP products |
 | POST | /api/checkout | Tạo Stripe checkout session |
 | POST | /api/webhook | Stripe webhook (payment result) |
@@ -577,6 +703,111 @@ Game đã có tension mechanics (vignette, heartbeat, surge, closing walls, boss
 - Negative: Bomb + Chain combo thêm complexity cho new players → mitigated: chỉ spawn ở wave 3+
 - Risk: Darkness wave gây disorientation → mitigated: targets vẫn glow, 10s max duration
 - Risk: Overtime kéo dài game → mitigated: max 15s, miss penalty lớn
+
+### ADR-017: V26 Game Feel & Audio Polish — Ducking, Combo Feedback, Bomb Warning
+
+**Status:** Accepted
+**Date:** 2026-02-02
+
+**Context:**
+Game có 30+ sound effects nhưng không có priority system — khi bomb explode + weapon fire + combo chime đồng thời, tất cả play ở full volume → audio saturation. Combo reset (từ 20+ về 0) không có feedback → player không biết mất combo. Bomb targets xuất hiện đột ngột không có warning.
+
+**Decision:** 3 tasks:
+
+**TASK-366: Audio Ducking System** — Tạo 3 GainNode buses (critical/high/low) trong audio-manager.js. Route sounds theo priority. Khi P0 sound fires → auto-duck P1 (-3dB) và P2 (-8dB) qua Web Audio `linearRampToValueAtTime`. Music cũng bị duck khi P0 active.
+
+**TASK-367: Combo Reset Feedback** — Detect high combo loss (≥10) tại tất cả combo=0 locations trong target-system.js. Play descending chime + "COMBO LOST!" HUD flash + micro camera shake. Combo loss ≥15 có 20% chance trigger debuff.
+
+**TASK-368: Bomb Spawn Warning Telegraph** — 800ms pre-spawn warning (pulsing red ring + audio alert + HUD arrow) trước khi bomb entity thực sự spawn. Player có tổng 3.8s reaction time thay vì 3s.
+
+**Consequences:**
+- Positive: Audio mix sạch hơn, không bị muddy khi nhiều SFX đồng thời
+- Positive: Combo loss trở thành moment đáng nhớ thay vì silent reset
+- Positive: Bomb warning tăng fairness — player có thời gian chuẩn bị
+- Negative: Ducking có thể mask ambient sounds quá mức → mitigated: chỉ duck khi P0 active, restore nhanh (200ms)
+- Risk: Combo lost debuff trigger có thể frustrating → mitigated: chỉ 20% chance, chỉ khi combo ≥15
+
+### ADR-016: V25 VFX Enhancement — Explosions, Projectile Trails, Muzzle Smoke
+
+**Status:** Accepted
+**Date:** 2026-02-02
+
+**Context:**
+Game có GPU particle system (gpu-particles.js) mạnh nhưng thiếu nhiều presets quan trọng. Bug critical: bomb explosion gọi `preset: 'explosion'` nhưng preset này không tồn tại — bomb nổ không có VFX. Projectile bay vào mặt player chỉ là sphere cam nhỏ không có trail — khó thấy và dodge. Muzzle flash thiếu smoke puff.
+
+**Decision:** 3 tasks:
+
+**TASK-363: Explosion Preset + Fireball** — Tạo multi-layer explosion preset (core hot + fire + smoke + shrapnel). Fix critical bug. Thêm ground scorch marks.
+
+**TASK-364: Projectile Trail + Warning Telegraph** — GPU particle trail dọc theo projectile path. Warning indicator 0.5s trước khi bắn. Enhanced projectile visual (core + outer glow). Impact explosion khi trúng/miss.
+
+**TASK-365: Muzzle Smoke** — Smoke puff 5 particles sau mỗi shot, drift upward. Shell casing spark on floor hit.
+
+**Consequences:**
+- Positive: Bomb explosion có fireball thực sự thay vì silent fail
+- Positive: Projectile dễ thấy hơn → gameplay fairness tăng
+- Positive: Warning telegraph cho player reaction time
+- Positive: Muzzle smoke tăng weapon satisfaction
+- Negative: Thêm ~70-180 particles/sec khi active — mitigated: all GPU-based, Quest 2 tested
+- Risk: Trail emitter mỗi 50ms có thể tạo nhiều GPU particle systems — mitigated: reuse single system, update positions
+
+### ADR-015: V24 Graphics Polish — VR Post-Processing, Shadow Optimization, Draw Call Batching
+
+**Status:** Accepted
+**Date:** 2026-02-02
+
+**Context:**
+Game có hệ thống post-processing đầy đủ (bloom, vignette, color grading, ACES tone mapping) nhưng **tất cả bị tắt trong VR mode** (line 162-167 bloom-effect.js: `if (xrSession) { origRenderFunc.call(...); return; }`). Khi chơi trên Quest 2 thực tế, player không thấy bloom, color grading, vignette — game trông "flat". Ngoài ra, mỗi theme spawn 15-30+ A-Frame entities cho distant environment (buildings, stars, coral, kelp) — mỗi entity = 1 draw call riêng.
+
+**Decision:** 3 tasks:
+
+**TASK-360: VR-Compatible Post-Processing**
+Viết lại render pipeline để hoạt động trong XR mode. Thay vì EffectComposer (không hỗ trợ stereo), inject color grading + vignette + damage flash trực tiếp vào material shaders thông qua `onBeforeCompile`. Bloom giữ disabled trong VR (quá tốn GPU cho Quest 2), nhưng tone mapping + color grading + vignette + damage flash phải hoạt động.
+
+Kỹ thuật: `renderer.xr.isPresenting` → thay vì skip toàn bộ, apply lightweight grading path:
+- Option A: `scene.onBeforeRender` hook — inject uniforms vào mỗi material's fragment shader qua `onBeforeCompile`
+- Option B: Fullscreen quad per-eye — render to `renderer.xr.getRenderTarget()`, apply composite shader per eye
+- Option C (đơn giản nhất): Sử dụng Three.js built-in `renderer.toneMapping = ACESFilmicToneMapping` + `renderer.toneMappingExposure` cho VR mode. Vignette + damage flash qua overlay entity gắn vào camera.
+
+→ **Chọn Option C** vì đơn giản nhất, Quest 2 safe, không cần custom render targets.
+
+**TASK-361: Shadow Optimization**
+Thu nhỏ shadow camera bounds từ ±20 về ±12 (vừa đủ cho arena 32x32, player ở giữa). Tăng effective shadow resolution. Thêm shadow camera follow player position (dynamic shadow frustum).
+
+**TASK-362: Draw Call Batching — Merge Distant Environment**
+Thay vì spawn 15-30 A-Frame entities cho distant decorations, merge tất cả static geometry thành 1 `THREE.Group` với `BufferGeometryUtils.mergeGeometries()` per material type. Kết quả: 15-30 draw calls → 2-4 draw calls per theme. Animated objects (whale, rotating asteroids) giữ riêng.
+
+**Consequences:**
+- Positive: Player trên Quest 2 thấy color grading + tone mapping + vignette + damage flash trong VR
+- Positive: Shadow chất lượng cao hơn với cùng texture size
+- Positive: Giảm ~80% draw calls cho distant environment
+- Negative: Option C cho VR post-processing đơn giản hơn Option A/B — không có per-pixel bloom trong VR
+- Negative: Merged geometry không thể animate từng object riêng
+- Risk: `onBeforeRender` hook có thể conflict với A-Frame internal rendering → mitigated: chỉ modify renderer settings, không override render
+- Risk: mergeGeometries cần matching material properties → mitigated: group by material type trước khi merge
+
+### ADR-018: V27 God Class Refactoring — Facade + Module Extraction
+
+**Status:** Accepted
+**Date:** 2026-02-02
+
+**Context:**
+target-system.js (3040 lines, 65+ methods) và audio-manager.js (1616 lines, 80+ methods) là god classes xử lý quá nhiều responsibilities. Mỗi code review tìm thấy bugs do file quá lớn khó review (ISSUE-017, ISSUE-019 lifetime unit bugs). Cần tách thành modules nhỏ hơn mà không thay đổi public API.
+
+**Decision:**
+- **Facade pattern**: Giữ `TargetSystem` và `AudioManager` làm public API/singleton. Tách logic nội bộ sang sub-modules.
+- **AudioManager** (1616 → ~250 lines facade + 4 modules): Sử dụng mixin pattern (`Object.assign(prototype, module)`). Sub-modules: `audio-weapons.js`, `audio-gameplay.js`, `audio-tension.js`, `audio-ui.js`.
+- **TargetSystem** (3040 → ~800 lines facade + 4 modules): Sử dụng composition (`this._hazards = new TargetHazards(this)`). Sub-modules: `target-hazards.js`, `target-specials.js`, `target-spawner.js`, `target-feedback.js`.
+- **Zero behavior change**: Pure structural refactor, no gameplay impact.
+- **Execution order**: Audio first (simpler, less coupling), then target-system hazards, specials, spawner+feedback.
+
+**Consequences:**
+- Positive: Mỗi file ≤ 900 lines, dễ review, dễ tìm bugs
+- Positive: Mixin pattern cho audio = zero overhead, methods attach trực tiếp vào prototype
+- Positive: Composition cho targets = clear dependency graph, testable
+- Negative: Thêm 8 files mới vào codebase
+- Negative: Mixin pattern mất IDE autocomplete cho sub-module methods (acceptable tradeoff)
+- Risk: Circular dependency nếu sub-modules reference nhau → mitigated: sub-modules chỉ reference parent facade qua constructor injection
 
 ### ADR Template
 

@@ -227,9 +227,34 @@ const THEMES = {
   },
 };
 
+// TASK-362: Dispose batched meshes' GPU resources before removing from DOM
+function _disposeBatchedMeshes(container) {
+  container.querySelectorAll('.batched-mesh').forEach(el => {
+    const mesh = el.getObject3D('mesh');
+    if (mesh) {
+      if (mesh.geometry) mesh.geometry.dispose();
+      if (mesh.material) mesh.material.dispose();
+    }
+  });
+}
+
 // Helper: spawn elements from a decoration array into a container
+// TASK-362: Batch static box decorations into merged geometry to reduce draw calls
 function _spawnDecorations(container, items, cssClass) {
+  const staticBoxes = [];
+  const nonBatchable = [];
+
   items.forEach(dec => {
+    // Only batch a-box without animations (static geometry)
+    if (dec.tag === 'a-box' && !dec.animation) {
+      staticBoxes.push(dec);
+    } else {
+      nonBatchable.push(dec);
+    }
+  });
+
+  // Spawn non-batchable items normally (animated planes, torus, etc.)
+  nonBatchable.forEach(dec => {
     const el = document.createElement(dec.tag);
     el.classList.add(cssClass);
     for (const [key, val] of Object.entries(dec)) {
@@ -238,6 +263,120 @@ function _spawnDecorations(container, items, cssClass) {
     }
     container.appendChild(el);
   });
+
+  // Merge static boxes into a single mesh per material signature
+  if (staticBoxes.length > 0) {
+    _batchStaticBoxes(container, staticBoxes, cssClass);
+  }
+}
+
+function _batchStaticBoxes(container, boxes, cssClass) {
+  // Group by material string for shared materials
+  const groups = {};
+  boxes.forEach(dec => {
+    const matKey = dec.material || 'default';
+    if (!groups[matKey]) groups[matKey] = [];
+    groups[matKey].push(dec);
+  });
+
+  Object.entries(groups).forEach(([matStr, group]) => {
+    if (group.length < 2) {
+      // Not worth batching single items
+      const dec = group[0];
+      const el = document.createElement('a-box');
+      el.classList.add(cssClass);
+      for (const [key, val] of Object.entries(dec)) {
+        if (key === 'tag') continue;
+        el.setAttribute(key, val);
+      }
+      container.appendChild(el);
+      return;
+    }
+
+    // Merge geometries
+    const geometries = [];
+    group.forEach(dec => {
+      const pos = (dec.position || '0 0 0').split(' ').map(Number);
+      const w = parseFloat(dec.width || 1);
+      const h = parseFloat(dec.height || 1);
+      const d = parseFloat(dec.depth || 1);
+      const geo = new THREE.BoxGeometry(w, h, d);
+      geo.translate(pos[0], pos[1], pos[2]);
+      geometries.push(geo);
+    });
+
+    const merged = THREE.BufferGeometryUtils
+      ? THREE.BufferGeometryUtils.mergeGeometries(geometries, false)
+      : _fallbackMerge(geometries);
+
+    // Parse material from A-Frame string
+    const mat = _parseMaterialString(matStr);
+
+    const mesh = new THREE.Mesh(merged, mat);
+    mesh.name = cssClass + '-batch';
+
+    // Create a-entity wrapper and inject the merged mesh
+    const wrapper = document.createElement('a-entity');
+    wrapper.classList.add(cssClass, 'batched-mesh');
+    container.appendChild(wrapper);
+    wrapper.addEventListener('loaded', () => {
+      wrapper.setObject3D('mesh', mesh);
+    }, { once: true });
+
+    // Dispose individual geometries
+    geometries.forEach(g => g.dispose());
+  });
+}
+
+function _fallbackMerge(geometries) {
+  // Simple fallback if BufferGeometryUtils not available
+  // Merge position, normal, uv attributes manually
+  let totalVerts = 0;
+  let totalIdx = 0;
+  geometries.forEach(g => {
+    totalVerts += g.attributes.position.count;
+    totalIdx += g.index ? g.index.count : 0;
+  });
+  const pos = new Float32Array(totalVerts * 3);
+  const norm = new Float32Array(totalVerts * 3);
+  const indices = totalIdx > 0 ? new Uint32Array(totalIdx) : null;
+  let vOff = 0, iOff = 0, vBase = 0;
+  geometries.forEach(g => {
+    const p = g.attributes.position.array;
+    pos.set(p, vOff * 3);
+    if (g.attributes.normal) norm.set(g.attributes.normal.array, vOff * 3);
+    if (g.index && indices) {
+      for (let i = 0; i < g.index.count; i++) {
+        indices[iOff + i] = g.index.array[i] + vBase;
+      }
+      iOff += g.index.count;
+    }
+    vBase += g.attributes.position.count;
+    vOff += g.attributes.position.count;
+  });
+  const merged = new THREE.BufferGeometry();
+  merged.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  merged.setAttribute('normal', new THREE.BufferAttribute(norm, 3));
+  if (indices) merged.setIndex(new THREE.BufferAttribute(indices, 1));
+  return merged;
+}
+
+function _parseMaterialString(matStr) {
+  if (matStr === 'default') return new THREE.MeshStandardMaterial();
+  const props = {};
+  matStr.split(';').forEach(pair => {
+    const [k, v] = pair.split(':').map(s => s.trim());
+    if (k && v) props[k] = v;
+  });
+  const isFlat = props.shader === 'flat';
+  const params = {};
+  if (props.color) params.color = new THREE.Color(props.color);
+  if (props.metalness) params.metalness = parseFloat(props.metalness);
+  if (props.roughness) params.roughness = parseFloat(props.roughness);
+  if (props.opacity) { params.opacity = parseFloat(props.opacity); params.transparent = true; }
+  if (props.emissive) params.emissive = new THREE.Color(props.emissive);
+  if (props.emissiveIntensity) params.emissiveIntensity = parseFloat(props.emissiveIntensity);
+  return isFlat ? new THREE.MeshBasicMaterial(params) : new THREE.MeshStandardMaterial(params);
 }
 
 function applyTheme(sceneEl, themeId) {
@@ -351,7 +490,25 @@ function applyTheme(sceneEl, themeId) {
   shadowLight.setAttribute('color', sl.color);
   shadowLight.setAttribute('intensity', String(sl.intensity));
   shadowLight.setAttribute('position', sl.position);
-  shadowLight.setAttribute('light', `castShadow: true; shadowMapWidth: 1024; shadowMapHeight: 1024; shadowCameraLeft: -20; shadowCameraRight: 20; shadowCameraTop: 20; shadowCameraBottom: -20; shadowCameraNear: 0.5; shadowCameraFar: 50`);
+  // TASK-361: Tighter shadow camera bounds (±12 vs ±20) for sharper shadows + bias tuning
+  shadowLight.setAttribute('light', `castShadow: true; shadowMapWidth: 1024; shadowMapHeight: 1024; shadowCameraLeft: -12; shadowCameraRight: 12; shadowCameraTop: 12; shadowCameraBottom: -12; shadowCameraNear: 0.5; shadowCameraFar: 40; shadowBias: -0.002`);
+
+  // TASK-361: Dynamic shadow follow — move shadow light to track player position (throttled)
+  if (window._shadowFollowInterval) clearInterval(window._shadowFollowInterval);
+  const slOffset = sl.position.split(' ').map(Number);
+  window._shadowFollowInterval = setInterval(() => {
+    const rig = document.getElementById('player-rig');
+    const sLight = document.getElementById('shadow-dir-light');
+    if (!rig || !sLight) return;
+    const pos = rig.object3D.position;
+    sLight.object3D.position.set(pos.x + slOffset[0], slOffset[1], pos.z + slOffset[2]);
+    // Update shadow camera target to player
+    const light3d = sLight.getObject3D('light');
+    if (light3d && light3d.target) {
+      light3d.target.position.set(pos.x, 0, pos.z);
+      light3d.target.updateMatrixWorld();
+    }
+  }, 500);
 
   // === Floor edge gradient (ambient occlusion on platform) ===
   gc.querySelectorAll('.floor-edge-gradient').forEach(el => el.remove());
@@ -423,6 +580,7 @@ function applyTheme(sceneEl, themeId) {
   // === Below-void content ===
   const belowVoidContainer = gc.querySelector('#below-void');
   if (belowVoidContainer) {
+    _disposeBatchedMeshes(belowVoidContainer);
     while (belowVoidContainer.firstChild) belowVoidContainer.firstChild.remove();
     if (theme.belowEnv) {
       _spawnDecorations(belowVoidContainer, theme.belowEnv, 'below-decoration');
@@ -432,6 +590,7 @@ function applyTheme(sceneEl, themeId) {
   // === Distant environment ===
   const distantEnvContainer = gc.querySelector('#distant-env');
   if (distantEnvContainer) {
+    _disposeBatchedMeshes(distantEnvContainer);
     while (distantEnvContainer.firstChild) distantEnvContainer.firstChild.remove();
     if (theme.distantEnv) {
       _spawnDecorations(distantEnvContainer, theme.distantEnv, 'distant-decoration');

@@ -38,6 +38,11 @@ AFRAME.registerComponent('bloom-effect', {
     this._targetContrast = 1.0;
     this._targetBrightness = 0;
 
+    // TASK-360: VR mode state
+    this._vrActive = false;
+    this._vrVignetteEl = null;
+    this._vrDamageEl = null;
+
     // TASK-332: Event listeners
     this._onDamage = () => { this._damageFlash = 0.4; };
     this._onKill = () => { this._killFlash = 0.15; };
@@ -171,10 +176,145 @@ AFRAME.registerComponent('bloom-effect', {
 
       window.addEventListener('resize', this._onResize);
       this._ready = true;
+
+      // TASK-360: Setup VR session listeners for tone mapping fallback
+      this._setupVRFallback(renderer);
     } catch (e) {
       // Graceful fallback — bloom not supported
       console.warn('[bloom-effect] Setup failed, disabling:', e.message);
       this._ready = false;
+    }
+  },
+
+  // TASK-360: VR-compatible post-processing via built-in tone mapping + overlay entities
+  _setupVRFallback(renderer) {
+    // Per-theme exposure values for VR built-in tone mapping
+    this._vrExposurePresets = {
+      cyber: 1.1,
+      sunset: 1.3,
+      space: 0.9,
+      underwater: 0.85,
+      neon: 1.2,
+      day: 1.4,
+    };
+    this._vrTargetExposure = 1.1;
+
+    const onSessionStart = () => {
+      this._vrActive = true;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = this._vrTargetExposure;
+      // Create VR overlay entities
+      this._createVROverlays();
+      console.log('[bloom-effect] VR mode: built-in ACES tone mapping enabled');
+    };
+    const onSessionEnd = () => {
+      this._vrActive = false;
+      renderer.toneMapping = THREE.NoToneMapping;
+      renderer.toneMappingExposure = 1.0;
+      // Remove VR overlays
+      this._removeVROverlays();
+      console.log('[bloom-effect] VR mode ended: custom pipeline restored');
+    };
+
+    this._onSessionStart = onSessionStart;
+    this._onSessionEnd = onSessionEnd;
+    renderer.xr.addEventListener('sessionstart', onSessionStart);
+    renderer.xr.addEventListener('sessionend', onSessionEnd);
+  },
+
+  _createVROverlays() {
+    const cameraEl = document.getElementById('camera');
+    if (!cameraEl) return;
+
+    // VR vignette overlay — semi-transparent black plane with radial gradient texture
+    if (!this._vrVignetteEl) {
+      const vig = document.createElement('a-plane');
+      vig.setAttribute('id', 'vr-vignette');
+      vig.setAttribute('width', '2');
+      vig.setAttribute('height', '2');
+      vig.setAttribute('position', '0 0 -0.5');
+      vig.setAttribute('material', {
+        shader: 'flat',
+        color: '#000000',
+        opacity: 0.0,
+        transparent: true,
+        depthTest: false,
+        depthWrite: false,
+      });
+      vig.setAttribute('visible', 'true');
+      cameraEl.appendChild(vig);
+      this._vrVignetteEl = vig;
+
+      // Generate radial vignette via canvas texture once the mesh is ready
+      vig.addEventListener('loaded', () => {
+        const mesh = vig.getObject3D('mesh');
+        if (!mesh) return;
+        const canvas = document.createElement('canvas');
+        canvas.width = 256;
+        canvas.height = 256;
+        const ctx = canvas.getContext('2d');
+        const grad = ctx.createRadialGradient(128, 128, 40, 128, 128, 128);
+        grad.addColorStop(0, 'rgba(0,0,0,0)');
+        grad.addColorStop(0.6, 'rgba(0,0,0,0)');
+        grad.addColorStop(1, 'rgba(0,0,0,1)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, 256, 256);
+        const tex = new THREE.CanvasTexture(canvas);
+        mesh.material = new THREE.MeshBasicMaterial({
+          map: tex,
+          transparent: true,
+          opacity: this.data.vignetteIntensity,
+          depthTest: false,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        });
+        mesh.renderOrder = 9998;
+        this._vrVignetteTex = tex;
+        this._vrVignetteMat = mesh.material;
+      }, { once: true });
+    }
+
+    // VR damage flash overlay — red plane
+    if (!this._vrDamageEl) {
+      const flash = document.createElement('a-plane');
+      flash.setAttribute('id', 'vr-damage-flash');
+      flash.setAttribute('width', '2');
+      flash.setAttribute('height', '2');
+      flash.setAttribute('position', '0 0 -0.5');
+      flash.setAttribute('material', {
+        shader: 'flat',
+        color: '#cc1a0d',
+        opacity: 0.0,
+        transparent: true,
+        depthTest: false,
+        depthWrite: false,
+      });
+      flash.setAttribute('visible', 'true');
+      cameraEl.appendChild(flash);
+      this._vrDamageEl = flash;
+
+      flash.addEventListener('loaded', () => {
+        const mesh = flash.getObject3D('mesh');
+        if (!mesh) return;
+        mesh.material.depthTest = false;
+        mesh.material.depthWrite = false;
+        mesh.renderOrder = 9999;
+        this._vrDamageMat = mesh.material;
+      }, { once: true });
+    }
+  },
+
+  _removeVROverlays() {
+    if (this._vrVignetteEl) {
+      this._vrVignetteEl.parentNode?.removeChild(this._vrVignetteEl);
+      if (this._vrVignetteTex) { this._vrVignetteTex.dispose(); this._vrVignetteTex = null; }
+      if (this._vrVignetteMat) { this._vrVignetteMat.dispose(); this._vrVignetteMat = null; }
+      this._vrVignetteEl = null;
+    }
+    if (this._vrDamageEl) {
+      this._vrDamageEl.parentNode?.removeChild(this._vrDamageEl);
+      if (this._vrDamageMat) { this._vrDamageMat.dispose(); this._vrDamageMat = null; }
+      this._vrDamageEl = null;
     }
   },
 
@@ -229,11 +369,23 @@ AFRAME.registerComponent('bloom-effect', {
     this._targetSaturation = p.sat;
     this._targetContrast = p.contrast;
     this._targetBrightness = p.bright;
+    // TASK-360: Update VR exposure target
+    if (this._vrExposurePresets) {
+      this._vrTargetExposure = this._vrExposurePresets[theme] || 1.1;
+    }
   },
 
   tick(time, delta) {
-    if (!this._ready || !this._compositeMat) return;
+    if (!this._ready) return;
     const dt = Math.min(delta * 0.001, 0.05);
+
+    // TASK-360: VR mode — update overlays instead of shader uniforms
+    if (this._vrActive) {
+      this._tickVR(dt);
+      return;
+    }
+
+    if (!this._compositeMat) return;
     const u = this._compositeMat.uniforms;
 
     // TASK-332: Decay damage flash
@@ -265,6 +417,51 @@ AFRAME.registerComponent('bloom-effect', {
     u.uSaturation.value = this._saturation;
     u.uContrast.value = this._contrast;
     u.uBrightness.value = this._brightness;
+  },
+
+  // TASK-360: VR tick — animate overlays + adjust tone mapping exposure per theme
+  _tickVR(dt) {
+    const renderer = this.el.renderer;
+
+    // Lerp tone mapping exposure toward theme target
+    const currExp = renderer.toneMappingExposure;
+    const diff = this._vrTargetExposure - currExp;
+    if (Math.abs(diff) > 0.001) {
+      renderer.toneMappingExposure = currExp + diff * dt * 1.0;
+    }
+
+    // Decay damage flash
+    if (this._damageFlash > 0) {
+      this._damageFlash = Math.max(0, this._damageFlash - dt * 1.3);
+      if (this._vrDamageMat) {
+        this._vrDamageMat.opacity = this._damageFlash;
+      }
+    }
+    // Decay kill flash (white additive on damage overlay)
+    if (this._killFlash > 0) {
+      this._killFlash = Math.max(0, this._killFlash - dt * 1.5);
+      if (this._vrDamageMat) {
+        // Blend kill flash as white over damage red
+        if (this._killFlash > this._damageFlash) {
+          this._vrDamageMat.color.setHex(0xffffff);
+          this._vrDamageMat.opacity = this._killFlash;
+        } else {
+          this._vrDamageMat.color.setHex(0xcc1a0d);
+        }
+      }
+    } else if (this._vrDamageMat && this._damageFlash > 0) {
+      this._vrDamageMat.color.setHex(0xcc1a0d);
+    }
+
+    // Low-HP vignette pulse
+    if (this._vrVignetteMat) {
+      if (this._lowHpPulse) {
+        this._lowHpPhase += dt * Math.PI * 2;
+        this._vrVignetteMat.opacity = 0.3 + Math.sin(this._lowHpPhase) * 0.15;
+      } else {
+        this._vrVignetteMat.opacity = this.data.vignetteIntensity;
+      }
+    }
   },
 
   update(oldData) {
@@ -319,6 +516,12 @@ AFRAME.registerComponent('bloom-effect', {
     document.removeEventListener('crosshair-kill', this._onKill);
     document.removeEventListener('hp-update', this._onHpUpdate);
     document.removeEventListener('theme-changed', this._onThemeChanged);
+    // TASK-360: Cleanup VR listeners and overlays
+    if (this._onSessionStart && this.el.renderer?.xr) {
+      this.el.renderer.xr.removeEventListener('sessionstart', this._onSessionStart);
+      this.el.renderer.xr.removeEventListener('sessionend', this._onSessionEnd);
+    }
+    this._removeVROverlays();
     if (this._origRenderFunc) {
       this.el.renderer.render = this._origRenderFunc;
     }

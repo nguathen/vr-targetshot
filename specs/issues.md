@@ -1,6 +1,6 @@
 # Issue Tracker
 
-> Last Updated: 2026-01-29
+> Last Updated: 2026-02-02
 > Purpose: Track bugs/regressions discovered during development.
 
 ---
@@ -11,11 +11,64 @@
 |--------|-------|
 | Open | 0 |
 | In Progress | 0 |
-| Resolved | 8 |
+| Resolved | 19 |
 
 ---
 
-## Open Issues
+## Open Issues (V26 Code Review)
+
+### ISSUE-019: [Medium] `_spawnBombWarning` GPU particle lifetime unit mismatch
+**Severity:** Medium | **Status:** Resolved (2026-02-02) | **Found By:** /code-check | **Date:** 2026-02-02
+**Assigned:** /dev
+Fixed `lifetime: 0.8` → `lifetime: 800` (milliseconds). Same unit mismatch as ISSUE-017.
+
+### ISSUE-015: [Medium] `_canPlay()`/`_soundDone()` dead code in audio-manager.js
+**Severity:** Medium | **Status:** Resolved (2026-02-02) | **Found By:** /code-check | **Date:** 2026-02-02
+**Assigned:** /dev
+Integrated `_canPlay()` guard + `osc.onended = _soundDone()` into `playHit`, `playWeaponFire` (all branches), and `playRicochet`. Concurrent sound limit (max 8) now functional.
+
+### ISSUE-016: [Medium] No combo-lost debounce/cooldown
+**Severity:** Medium | **Status:** Resolved (2026-02-02) | **Found By:** /code-check | **Date:** 2026-02-02
+**Assigned:** /dev
+Added `this._lastComboLostTime` guard with 3s cooldown at top of `_triggerComboLost()`.
+
+### ISSUE-017: [Medium] GPU particle lifetime unit mismatch in combo-lost burst
+**Severity:** Medium | **Status:** Resolved (2026-02-02) | **Found By:** /code-check | **Date:** 2026-02-02
+**Assigned:** /dev
+Fixed `lifetime: 0.6` → `lifetime: 600` (milliseconds).
+
+### ISSUE-018: [Low] Bomb warning doesn't check close-range distance
+**Severity:** Low | **Status:** Resolved (2026-02-02) | **Found By:** /code-check | **Date:** 2026-02-02
+**Assigned:** /dev
+Added camera distance check: if spawn < 3m from camera, warning reduced from 800ms to 400ms.
+
+## Recently Resolved (V25 Code Review)
+
+### ISSUE-013: [Medium] Bomb explosion pos is live Vector3 reference used in delayed setTimeout
+**Severity:** Medium | **Status:** Resolved (2026-02-02) | **Found By:** /code-check
+`pos = el.object3D.position` was a live reference. Delayed smoke setTimeout (100ms) used it after `removeChild(el)`. Fixed: cloned to plain object `{ x, y, z }`.
+
+### ISSUE-014: [Low] Warning telegraph ring used wrong look-at selector
+**Severity:** Low | **Status:** Resolved (2026-02-02) | **Found By:** /code-check
+Used `#camera` but codebase convention is `[camera]` (attribute selector). Fixed to match existing pattern.
+
+## Recently Resolved (V24 Code Review)
+
+### ISSUE-009: [Medium] Shadow follow interval string re-parsing
+**Severity:** Medium | **Status:** Resolved (2026-02-02) | **Found By:** /code-check
+`sl.position.split(' ').map(Number)` was re-computed every 500ms tick. Fixed: cached outside interval.
+
+### ISSUE-010: [Medium] Batched mesh GPU memory leak on theme switch
+**Severity:** Medium | **Status:** Resolved (2026-02-02) | **Found By:** /code-check
+Merged geometry + material not disposed before container cleared. Fixed: added `_disposeBatchedMeshes()`.
+
+### ISSUE-011: [Low] VR vignette canvas texture not disposed
+**Severity:** Low | **Status:** Resolved (2026-02-02) | **Found By:** /code-check
+`CanvasTexture` leaked on VR session end. Fixed: stored as `_vrVignetteTex`, disposed in `_removeVROverlays()`.
+
+### ISSUE-012: [Low] _parseMaterialString colon splitting fragility
+**Severity:** Low | **Status:** Accepted Risk | **Found By:** /code-check
+`pair.split(':')` splits all colons. Current data has no colons in values. Accepted as-is.
 
 ### ISSUE-007: [High] Menu buttons not clickable on Quest TWA app
 
