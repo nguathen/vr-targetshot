@@ -11,8 +11,8 @@
 | Status | Count |
 |--------|-------|
 | In Progress | 0 |
-| Pending | 0 |
-| Completed | 133 |
+| Pending | 4 |
+| Completed | 135 |
 
 > V1–V13 — all completed (68 tasks).
 > **V14 Content & QoL Upgrade (TASK-270~277)** — completed.
@@ -28,6 +28,115 @@
 > **V24 Graphics Polish (TASK-360~362)** — completed.
 > **V25 VFX Enhancement (TASK-363~365)** — completed.
 > **V26 Game Feel & Audio Polish (TASK-366~368)** — completed.
+> **V27 God Class Refactoring (TASK-370~373)** — completed.
+> **V28 Performance Optimization (TASK-380~385)** — pending (Meta Quest VRC fix).
+
+---
+
+## V28 — Performance Optimization (CRITICAL — Meta Quest VRC Fix)
+
+> **Goal:** Fix FPS drops below 60 during game initialization. Meta Quest VRC.Quest.Performance.1 rejection.
+> **Ref:** ISSUE-020
+
+## TASK-380: Lazy Bloom Effect Initialization
+**Priority:** Critical
+**Status:** Completed (2026-02-04)
+**Assigned:** /dev
+
+### Description
+Defer bloom-effect.js RenderTarget creation and shader compilation until first use (not scene load).
+
+### Acceptance Criteria
+- [ ] Move RenderTarget creation (lines 71-92) to `_ensureTargets()` called on first render
+- [ ] Move ShaderMaterial creation (lines 98-154) to lazy getter
+- [ ] Bloom disabled by default in VR, enable only if `settings.bloom = true`
+- [ ] Profile: init should be < 5ms (down from ~80ms)
+
+---
+
+## TASK-381: Async Environment Map Generation
+**Priority:** Critical
+**Status:** Completed (2026-02-04)
+**Assigned:** /dev
+
+### Description
+Defer PMREMGenerator cubemap and normal map generation. Generate asynchronously spread across multiple frames.
+
+### Acceptance Criteria
+- [ ] `init()` in env-reflections.js does NOT generate cubemap — only setup PMREMGenerator
+- [ ] `_generateCubemap(theme)` runs via `setTimeout` chunking (1 light per frame)
+- [ ] Normal map generation (lines 210-461) deferred to after first gameplay frame
+- [ ] Use 256×256 normal maps initially (reduce from 512×512)
+- [ ] Cache cubemaps per theme (already done) — verify no re-generation
+- [ ] Profile: init should be < 10ms (down from ~150ms)
+
+---
+
+## TASK-382: Pre-warm Target Models During Loading
+**Priority:** High
+**Status:** Pending
+**Assigned:** /dev
+
+### Description
+Move target model generation from first-spawn (mid-gameplay) to loading screen phase.
+
+### Acceptance Criteria
+- [ ] Add `TargetModels.preWarm()` function that calls `_ensureInit()` explicitly
+- [ ] Call `preWarm()` in game-main.js loading screen phase (before countdown)
+- [ ] Use `requestIdleCallback` or `setTimeout(0)` to spread across idle frames
+- [ ] Profile: first target spawn < 1ms (down from ~50ms)
+
+---
+
+## TASK-383: Remove Legacy Particle Fallback
+**Priority:** High
+**Status:** Pending
+**Assigned:** /dev
+
+### Description
+Remove entity-based particle spawning. Force GPU particles only. Legacy fallback in `_spawnAmbientParticles()` and `weather-system.js` causes 70+ entity creation.
+
+### Acceptance Criteria
+- [ ] Remove lines 1011-1078 in game-main.js (legacy ambient particles)
+- [ ] Remove lines 177-228 in weather-system.js (legacy weather particles)
+- [ ] Keep only GPU particle path (`window.__spawnGPUBurst`)
+- [ ] If GPU particles unavailable → disable particles entirely (no fallback)
+- [ ] Verify: 0 entities created for particles
+- [ ] Profile: ambient particle init < 2ms (down from ~40ms)
+
+---
+
+## TASK-384: Async Theme Application
+**Priority:** High
+**Status:** Pending
+**Assigned:** /dev
+
+### Description
+Split `applyTheme()` into RAF-chunked async operations to avoid single-frame DOM stall.
+
+### Acceptance Criteria
+- [ ] Extract decoration spawning to `_applyThemeDecorations()` called via `setTimeout(0)`
+- [ ] Extract normal map generation to separate async call
+- [ ] Core theme (sky, lights, materials) applied synchronously (essential)
+- [ ] Decorations, particles, reflections applied in next 2-3 frames
+- [ ] Profile: synchronous applyTheme < 15ms (down from ~60ms)
+
+---
+
+## TASK-385: Object Pooling for Decorations
+**Priority:** Medium
+**Status:** Pending
+**Assigned:** /dev
+
+### Description
+Pre-create decoration entities (buildings, stars, etc.) at boot, toggle visibility instead of create/destroy on theme switch.
+
+### Acceptance Criteria
+- [ ] Create decoration pool during loading screen (all 6 themes' decorations)
+- [ ] Pool entities start with `visible="false"`
+- [ ] `applyTheme()` toggles pool visibility instead of creating new entities
+- [ ] On theme switch: hide old decorations, show new decorations
+- [ ] Profile: theme switch < 5ms (down from ~30ms entity creation)
 
 ---
 

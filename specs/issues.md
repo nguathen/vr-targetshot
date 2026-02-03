@@ -15,7 +15,49 @@
 
 ---
 
-## Open Issues (V26 Code Review)
+## Open Issues
+
+### ISSUE-020: [Critical] Meta Quest VRC Rejection — FPS drops below 60 at game start
+
+**Severity:** Critical
+**Status:** Open
+**Found By:** Meta Quest Store Review (VRC.Quest.Performance.1)
+**Date:** 2026-02-04
+**Assigned:** /dev
+
+### Description
+App rejected by Meta Quest Store. FPS fluctuates below 60 during shooting game initialization, violating VRC.Quest.Performance.1 requirement (stable 72Hz+).
+
+### Root Cause Analysis
+6 synchronous heavy operations during `_initRound()`:
+
+| Component | File | Issue | Impact |
+|-----------|------|-------|--------|
+| Bloom Effect | bloom-effect.js:71-154 | 4 RenderTargets + 4 shaders | ~80ms GPU stall |
+| Env Reflections | env-reflections.js:162 | PMREMGenerator cubemap | ~100ms |
+| Normal Maps | env-reflections.js:210-461 | 512×512 canvas generation | ~50ms |
+| Theme Apply | environment-themes.js:382-622 | 20+ DOM ops + decorations | ~60ms |
+| Ambient Particles | game-main.js:986-1079 | 70 legacy entities | ~40ms |
+| Target Models | target-models.js:37-56 | 30 geometries on first spawn | ~50ms |
+
+**Total estimated stall: ~380ms** (6+ frames at 60fps)
+
+### Fix Strategy
+**V28 Performance Optimization** — Defer all heavy initialization:
+1. Lazy shader compilation (compile on first use, not scene load)
+2. Async cubemap/normal map generation (spread across frames)
+3. Pre-warm target models during loading screen
+4. Force GPU particles only (remove legacy fallback)
+5. Object pooling for decorations
+
+### Acceptance Criteria
+- [ ] Stable 72+ FPS during game start on Quest 2
+- [ ] No single-frame stalls > 16ms
+- [ ] Pass OVR Metrics Tool profiling
+
+---
+
+## Resolved Issues (V26 Code Review)
 
 ### ISSUE-019: [Medium] `_spawnBombWarning` GPU particle lifetime unit mismatch
 **Severity:** Medium | **Status:** Resolved (2026-02-02) | **Found By:** /code-check | **Date:** 2026-02-02

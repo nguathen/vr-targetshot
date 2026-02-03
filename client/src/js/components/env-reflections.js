@@ -18,13 +18,20 @@ AFRAME.registerComponent('env-reflections', {
     this._envCache = {};
     this._normalCache = {};
     this._currentTheme = 'cyber';
+    // TASK-381: Async initialization flags
+    this._pmremReady = false;
+    this._pendingTheme = null;
 
     this._onThemeChanged = (e) => {
       const theme = e.detail?.theme || 'cyber';
       if (theme !== this._currentTheme) {
         this._currentTheme = theme;
-        this._applyEnvMap(theme);
-        if (this.data.floorDetail) this._applyFloorNormal(theme);
+        // TASK-381: Defer env map generation to next frame
+        this._scheduleEnvMapGeneration(theme);
+        // TASK-381: Defer normal map to frame after that
+        if (this.data.floorDetail) {
+          setTimeout(() => this._applyFloorNormal(theme), 32);
+        }
       }
     };
     document.addEventListener('theme-changed', this._onThemeChanged);
@@ -40,17 +47,35 @@ AFRAME.registerComponent('env-reflections', {
     const renderer = this.el.renderer;
     if (!renderer) return;
 
+    // TASK-381: Only create PMREMGenerator here — defer shader compilation
     this._pmrem = new THREE.PMREMGenerator(renderer);
-    this._pmrem.compileCubemapShader();
+    // DON'T call compileCubemapShader() here — let it compile lazily on first use
+    this._pmremReady = true;
 
     // Check settings
     const settings = typeof window.__getSettings === 'function' ? window.__getSettings() : {};
     if (settings.reflections === false) return;
 
-    this._applyEnvMap(this._currentTheme);
-    if (this.data.floorDetail && settings.floorDetail !== false) {
-      this._applyFloorNormal(this._currentTheme);
-    }
+    // TASK-381: Defer initial env map generation to next frame (after scene render)
+    setTimeout(() => {
+      this._applyEnvMap(this._currentTheme);
+      if (this.data.floorDetail && settings.floorDetail !== false) {
+        // Defer normal map one more frame
+        setTimeout(() => this._applyFloorNormal(this._currentTheme), 16);
+      }
+    }, 16);
+  },
+
+  // TASK-381: Schedule env map generation for next frame
+  _scheduleEnvMapGeneration(theme) {
+    if (this._pendingTheme === theme) return;
+    this._pendingTheme = theme;
+    setTimeout(() => {
+      if (this._pendingTheme === theme) {
+        this._applyEnvMap(theme);
+        this._pendingTheme = null;
+      }
+    }, 16);
   },
 
   _applyEnvMap(themeId) {
@@ -210,14 +235,15 @@ AFRAME.registerComponent('env-reflections', {
   _getOrGenerateNormal(themeId) {
     if (this._normalCache[themeId]) return this._normalCache[themeId];
 
+    // TASK-381: Reduced from 512×512 to 256×256 for faster generation
     const canvas = document.createElement('canvas');
-    canvas.width = 512;
-    canvas.height = 512;
+    canvas.width = 256;
+    canvas.height = 256;
     const ctx = canvas.getContext('2d');
 
     // Fill with neutral normal (pointing up: 128, 128, 255)
     ctx.fillStyle = 'rgb(128, 128, 255)';
-    ctx.fillRect(0, 0, 512, 512);
+    ctx.fillRect(0, 0, 256, 256);
 
     const generators = {
       cyber: () => this._drawHexGrid(ctx),
@@ -242,13 +268,14 @@ AFRAME.registerComponent('env-reflections', {
 
   // Normal map helpers — draw patterns that encode surface normals
   // Normal color: R=X, G=Y, B=Z; neutral=(128,128,255)
+  // TASK-381: Updated to use 256×256 canvas
   _drawHexGrid(ctx) {
-    const w = 512, h = 512;
-    const hexR = 32;
+    const w = 256, h = 256;
+    const hexR = 20; // Scaled down from 32
     const hexH = hexR * Math.sqrt(3);
 
     ctx.strokeStyle = 'rgb(138, 138, 240)';
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 1.5;
 
     for (let row = -1; row < h / hexH + 1; row++) {
       for (let col = -1; col < w / (hexR * 1.5) + 1; col++) {
@@ -261,15 +288,15 @@ AFRAME.registerComponent('env-reflections', {
     // Circuit traces
     ctx.strokeStyle = 'rgb(148, 128, 245)';
     ctx.lineWidth = 1;
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < 8; i++) { // Reduced from 12
       const x = Math.random() * w;
       const y = Math.random() * h;
       ctx.beginPath();
       ctx.moveTo(x, y);
       let px = x, py = y;
-      for (let j = 0; j < 4; j++) {
+      for (let j = 0; j < 3; j++) { // Reduced from 4
         const dir = Math.floor(Math.random() * 4);
-        const len = 20 + Math.random() * 40;
+        const len = 15 + Math.random() * 25; // Scaled down
         if (dir === 0) px += len;
         else if (dir === 1) px -= len;
         else if (dir === 2) py += len;
@@ -294,11 +321,11 @@ AFRAME.registerComponent('env-reflections', {
   },
 
   _drawCrackedTiles(ctx) {
-    const w = 512, h = 512;
+    const w = 256, h = 256;
     // Stone tile grid
-    const tileSize = 64;
+    const tileSize = 42; // Scaled from 64
     ctx.strokeStyle = 'rgb(118, 118, 245)';
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 2;
     for (let x = 0; x < w; x += tileSize) {
       ctx.beginPath();
       ctx.moveTo(x, 0);
@@ -315,14 +342,14 @@ AFRAME.registerComponent('env-reflections', {
     // Cracks
     ctx.strokeStyle = 'rgb(108, 118, 240)';
     ctx.lineWidth = 1;
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 5; i++) { // Reduced from 8
       let x = Math.random() * w;
       let y = Math.random() * h;
       ctx.beginPath();
       ctx.moveTo(x, y);
-      for (let j = 0; j < 6; j++) {
-        x += (Math.random() - 0.5) * 30;
-        y += (Math.random() - 0.5) * 30;
+      for (let j = 0; j < 4; j++) { // Reduced from 6
+        x += (Math.random() - 0.5) * 20; // Scaled from 30
+        y += (Math.random() - 0.5) * 20;
         ctx.lineTo(x, y);
       }
       ctx.stroke();
@@ -330,12 +357,12 @@ AFRAME.registerComponent('env-reflections', {
   },
 
   _drawMetalPanels(ctx) {
-    const w = 512, h = 512;
-    const panelW = 80, panelH = 80;
+    const w = 256, h = 256;
+    const panelW = 52, panelH = 52; // Scaled from 80
 
     // Panel seams — darker indent
     ctx.strokeStyle = 'rgb(118, 118, 240)';
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 2;
     for (let x = 0; x < w; x += panelW) {
       ctx.beginPath();
       ctx.moveTo(x, 0);
@@ -354,43 +381,43 @@ AFRAME.registerComponent('env-reflections', {
     for (let x = 0; x < w; x += panelW) {
       for (let y = 0; y < h; y += panelH) {
         ctx.beginPath();
-        ctx.arc(x + 8, y + 8, 3, 0, Math.PI * 2);
+        ctx.arc(x + 5, y + 5, 2, 0, Math.PI * 2);
         ctx.fill();
         ctx.beginPath();
-        ctx.arc(x + panelW - 8, y + 8, 3, 0, Math.PI * 2);
+        ctx.arc(x + panelW - 5, y + 5, 2, 0, Math.PI * 2);
         ctx.fill();
         ctx.beginPath();
-        ctx.arc(x + 8, y + panelH - 8, 3, 0, Math.PI * 2);
+        ctx.arc(x + 5, y + panelH - 5, 2, 0, Math.PI * 2);
         ctx.fill();
         ctx.beginPath();
-        ctx.arc(x + panelW - 8, y + panelH - 8, 3, 0, Math.PI * 2);
+        ctx.arc(x + panelW - 5, y + panelH - 5, 2, 0, Math.PI * 2);
         ctx.fill();
       }
     }
   },
 
   _drawRipples(ctx) {
-    const w = 512, h = 512;
-    // Concentric ripple rings from several centers
+    const w = 256, h = 256;
+    // Concentric ripple rings from several centers (scaled positions)
     const centers = [
-      { x: 128, y: 128 }, { x: 384, y: 256 },
-      { x: 200, y: 400 }, { x: 400, y: 100 },
+      { x: 64, y: 64 }, { x: 192, y: 128 },
+      { x: 100, y: 200 }, { x: 200, y: 50 },
     ];
 
     ctx.strokeStyle = 'rgb(133, 138, 248)';
     ctx.lineWidth = 1;
 
     centers.forEach(c => {
-      for (let r = 15; r < 120; r += 18) {
+      for (let r = 10; r < 70; r += 12) { // Scaled from 15-120, step 18
         ctx.beginPath();
         ctx.arc(c.x, c.y, r, 0, Math.PI * 2);
         ctx.stroke();
       }
     });
 
-    // Sandy noise dots
+    // Sandy noise dots (reduced from 200)
     ctx.fillStyle = 'rgb(132, 125, 250)';
-    for (let i = 0; i < 200; i++) {
+    for (let i = 0; i < 80; i++) {
       ctx.beginPath();
       ctx.arc(Math.random() * w, Math.random() * h, 1, 0, Math.PI * 2);
       ctx.fill();
@@ -398,8 +425,8 @@ AFRAME.registerComponent('env-reflections', {
   },
 
   _drawGlowGrid(ctx) {
-    const w = 512, h = 512;
-    const spacing = 40;
+    const w = 256, h = 256;
+    const spacing = 26; // Scaled from 40
 
     // Grid lines with stronger normals at intersections
     ctx.strokeStyle = 'rgb(143, 128, 248)';
@@ -423,15 +450,15 @@ AFRAME.registerComponent('env-reflections', {
     for (let x = 0; x < w; x += spacing) {
       for (let y = 0; y < h; y += spacing) {
         ctx.beginPath();
-        ctx.arc(x, y, 4, 0, Math.PI * 2);
+        ctx.arc(x, y, 3, 0, Math.PI * 2); // Scaled from 4
         ctx.fill();
       }
     }
   },
 
   _drawConcrete(ctx) {
-    const w = 512, h = 512;
-    // Subtle noise pattern
+    const w = 256, h = 256;
+    // TASK-381: Reduced from 512×512 (262K pixels) to 256×256 (65K pixels) — 4x faster
     const imageData = ctx.getImageData(0, 0, w, h);
     const data = imageData.data;
     for (let i = 0; i < data.length; i += 4) {
@@ -446,14 +473,14 @@ AFRAME.registerComponent('env-reflections', {
     // Sparse hairline cracks
     ctx.strokeStyle = 'rgb(122, 122, 248)';
     ctx.lineWidth = 0.5;
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 4; i++) { // Reduced from 5
       let x = Math.random() * w;
       let y = Math.random() * h;
       ctx.beginPath();
       ctx.moveTo(x, y);
       for (let j = 0; j < 3; j++) {
-        x += (Math.random() - 0.5) * 50;
-        y += (Math.random() - 0.5) * 50;
+        x += (Math.random() - 0.5) * 30; // Scaled from 50
+        y += (Math.random() - 0.5) * 30;
         ctx.lineTo(x, y);
       }
       ctx.stroke();
