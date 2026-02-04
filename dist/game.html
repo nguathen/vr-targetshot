@@ -4,27 +4,66 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>VR Quest Game V2 - Play</title>
-  <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
-  <script type="module" crossorigin src="/assets/game-gFTA6GwC.js"></script>
-  <link rel="modulepreload" crossorigin href="/assets/auth-manager-DjZ92ISH.js">
-  <link rel="modulepreload" crossorigin href="/assets/game-manager-CB7B5o80.js">
-  <link rel="modulepreload" crossorigin href="/assets/audio-manager-BoM9ZqFN.js">
-  <link rel="modulepreload" crossorigin href="/assets/weapon-system-BnhBiZik.js">
-  <link rel="stylesheet" crossorigin href="/assets/auth-manager-aBq4tpvn.css">
+  <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+  <script type="module" crossorigin src="/assets/auth-manager-BjDH3exD.js"></script>
+  <script type="module" crossorigin src="/assets/audio-manager-zsCpgipr.js"></script>
+  <script type="module" crossorigin src="/assets/achievements-FCDtQXnT.js"></script>
+  <script type="module" crossorigin src="/assets/rank-system-BFO9Ltj3.js"></script>
+  <script type="module" crossorigin src="/assets/leaderboard-manager-CcsP2fD-.js"></script>
+  <script type="module" crossorigin src="/assets/game-main-CNlRBSFJ.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/auth-manager-Bz-KK8O_.css">
 </head>
 <body>
+  <div id="loading-screen" style="position:fixed;inset:0;z-index:99990;background:#0a0a1a;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;font-family:monospace;transition:opacity 0.4s">
+    <div style="font-size:28px;margin-bottom:16px;color:#00ff88">Loading Arena...</div>
+    <div style="width:120px;height:3px;background:#222;border-radius:2px;overflow:hidden;margin-bottom:16px">
+      <div id="loading-bar" style="width:0%;height:100%;background:#00ff88;transition:width 0.3s"></div>
+    </div>
+    <div id="loading-tip" style="font-size:13px;opacity:0.6;max-width:300px;text-align:center"></div>
+  </div>
+  <script>
+  (function(){
+    var tips=["Aim for combos — x5 multiplier at 5 hits!","Dodge red projectiles — they hurt!","Punch melee targets with your fists","Hit rhythm targets on the beat","Lean to dodge laser sweeps","Shield absorbs one hit","Magnet pulls targets toward you","Try different weapons for each mode","Weekly challenges give bonus XP"];
+    var el=document.getElementById('loading-tip');if(el)el.textContent=tips[Math.floor(Math.random()*tips.length)];
+    var bar=document.getElementById('loading-bar');var p=10;
+    var iv=setInterval(function(){p=Math.min(p+Math.random()*15,90);if(bar)bar.style.width=p+'%';},300);
+    function dismiss(){clearInterval(iv);if(bar)bar.style.width='100%';var ls=document.getElementById('loading-screen');if(ls){setTimeout(function(){ls.style.opacity='0';setTimeout(function(){ls.remove();},400);},200);}}
+    var sc=document.querySelector('a-scene');if(sc){if(sc.hasLoaded)dismiss();else sc.addEventListener('loaded',dismiss);}else{window.addEventListener('load',dismiss);}
+    setTimeout(dismiss,8000);
+  })();
+  </script>
   <div id="transition" class="transition"></div>
 
   <!-- Game Over overlay -->
   <div id="game-over-overlay" class="hidden">
     <div class="menu game-over-menu">
-      <h1>Game Over</h1>
-      <p id="final-score">Score: 0</p>
-      <p id="final-high-score">High Score: 0</p>
-      <p id="final-xp" class="xp-display">+0 XP</p>
-      <p id="final-stats" class="stats-line">Targets: 0 | Best Combo: x0</p>
+      <h1 class="game-over-title">Game Over</h1>
+      <div id="new-high-badge" class="new-high-badge hidden">NEW HIGH SCORE!</div>
+      <div class="score-section">
+        <p id="final-score" class="final-score">0</p>
+        <p id="final-high-score" class="final-high-score">High Score: 0</p>
+      </div>
+      <div class="stats-section">
+        <div class="stat-box">
+          <span id="stat-targets" class="stat-box-value">0</span>
+          <span class="stat-box-label">Targets</span>
+        </div>
+        <div class="stat-box">
+          <span id="stat-combo" class="stat-box-value">x0</span>
+          <span class="stat-box-label">Best Combo</span>
+        </div>
+        <div class="stat-box">
+          <span id="stat-accuracy" class="stat-box-value">0%</span>
+          <span class="stat-box-label">Accuracy</span>
+        </div>
+      </div>
+      <div class="xp-section">
+        <p id="final-xp" class="xp-display">+0 XP</p>
+        <div class="xp-bar-go"><div id="xp-fill-go" class="xp-fill"></div></div>
+      </div>
       <div class="buttons">
         <button id="btn-retry" class="btn btn-primary">Retry</button>
+        <button id="btn-share" class="btn btn-secondary">Share</button>
         <button id="btn-menu" class="btn btn-secondary">Main Menu</button>
       </div>
     </div>
@@ -44,11 +83,18 @@
   <script src="./js/components/particle-burst.js"></script>
   <script src="./js/components/damage-number.js"></script>
   <script src="./js/components/target-hit.js"></script>
+  <script src="./js/components/bloom-effect.js"></script>
+  <script src="./js/components/camera-effects.js"></script>
+  <script src="./js/components/weapon-model.js"></script>
+  <script src="./js/components/hand-shield.js"></script>
+  <script src="./js/components/env-reflections.js"></script>
 
-  <a-scene id="game-scene" vr-mode-ui="enterVRButton: #enter-vr-custom">
+  <a-scene id="game-scene" vr-mode-ui="enterVRButton: #enter-vr-custom" shadow="type: pcfsoft; autoUpdate: true"
+           bloom-effect="strength: 0.3; radius: 0.4; threshold: 0.7"
+           env-reflections>
     <!-- Player Rig -->
     <a-entity id="player-rig" position="0 0 0" smooth-locomotion="speed: 3; camera: #camera">
-      <a-camera id="camera" position="0 1.6 0" wasd-controls="acceleration: 20" look-controls>
+      <a-camera id="camera" position="0 1.6 0" wasd-controls="acceleration: 20" look-controls camera-effects="shakeLevel: medium">
         <!-- Crosshair -->
         <a-ring id="crosshair" position="0 0 -1" radius-inner="0.01" radius-outer="0.015"
                 color="#00ff88" material="shader: flat; opacity: 0.8"></a-ring>
@@ -66,6 +112,15 @@
                 scale="0.2 0.2 0.2" color="#aaaaff" font="mozillavr" align="right"></a-text>
         <a-text id="hud-level" value="" position="-0.45 0.35 -1"
                 scale="0.2 0.2 0.2" color="#ffd700" font="mozillavr" align="left"></a-text>
+        <!-- Boss Health Bar HUD -->
+        <a-entity id="hud-boss" visible="false" position="0 -0.25 -1">
+          <a-plane id="boss-bar-bg" width="0.5" height="0.03" color="#330000"
+                   material="shader: flat; opacity: 0.7"></a-plane>
+          <a-plane id="boss-bar-fill" width="0.5" height="0.025" color="#ff3333"
+                   material="shader: flat" position="0 0 0.001"></a-plane>
+          <a-text id="boss-bar-label" value="BOSS" position="0 0.03 0"
+                  scale="0.15 0.15 0.15" color="#ff6666" font="mozillavr" align="center"></a-text>
+        </a-entity>
         <!-- Non-VR cursor -->
         <a-cursor color="#00ff88" fuse="false" raycaster="objects: .target; far: 100"></a-cursor>
       </a-camera>
@@ -75,7 +130,8 @@
                 oculus-touch-controls="hand: left"
                 laser-controls="hand: left; model: false"
                 raycaster="objects: .target; far: 50; lineColor: #44aaff; lineOpacity: 0.5"
-                shoot-controls="hand: left">
+                shoot-controls="hand: left"
+                hand-shield>
       </a-entity>
 
       <!-- Right controller -->
@@ -83,7 +139,8 @@
                 oculus-touch-controls="hand: right"
                 laser-controls="hand: right; model: false"
                 raycaster="objects: .target; far: 50; lineColor: #ff4444; lineOpacity: 0.7"
-                shoot-controls="hand: right">
+                shoot-controls="hand: right"
+                weapon-model>
       </a-entity>
     </a-entity>
 
@@ -92,7 +149,7 @@
 
     <!-- Grid floor -->
     <a-plane position="0 0 0" rotation="-90 0 0" width="100" height="100"
-             material="color: #111133; wireframe: false" shadow="receive: true"></a-plane>
+             material="color: #111133; metalness: 0.8; roughness: 0.4" shadow="receive: true"></a-plane>
     <a-entity id="floor-grid" position="0 0.01 0" rotation="-90 0 0">
       <a-plane width="30" height="30" material="color: #1a1a4e; wireframe: true; wireframeLinewidth: 1; opacity: 0.3"
                segments-width="30" segments-height="30"></a-plane>
@@ -109,11 +166,11 @@
            material="color: #0044aa; opacity: 0.15; shader: flat"></a-box>
 
     <!-- Lighting -->
-    <a-light type="ambient" color="#222244" intensity="0.4"></a-light>
-    <a-light type="point" position="0 10 0" intensity="1.2" color="#4466ff" distance="40"></a-light>
-    <a-light type="point" position="-8 6 -8" intensity="0.6" color="#ff4444" distance="25"></a-light>
-    <a-light type="point" position="8 6 -8" intensity="0.6" color="#44ff44" distance="25"></a-light>
-    <a-light type="point" position="0 4 8" intensity="0.4" color="#ff88ff" distance="20"></a-light>
+    <a-light type="ambient" color="#333355" intensity="0.6"></a-light>
+    <a-light type="point" position="0 10 0" intensity="1.6" color="#4466ff" distance="40"></a-light>
+    <a-light type="point" position="-8 6 -8" intensity="0.8" color="#ff4444" distance="25"></a-light>
+    <a-light type="point" position="8 6 -8" intensity="0.8" color="#44ff44" distance="25"></a-light>
+    <a-light type="point" position="0 4 8" intensity="0.6" color="#ff88ff" distance="20"></a-light>
 
     <!-- Decorative pillars -->
     <a-cylinder position="-14 2 -14" radius="0.3" height="4" color="#1a1a4e"
@@ -128,6 +185,7 @@
     <!-- Target container -->
     <a-entity id="target-container"></a-entity>
   </a-scene>
-
+
+<script>if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});</script>
 </body>
 </html>

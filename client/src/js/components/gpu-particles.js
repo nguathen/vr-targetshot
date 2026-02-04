@@ -437,7 +437,14 @@ AFRAME.registerComponent('gpu-particles', {
     if (!this._geometry || !this._points || this._dead || !this.data.enabled) return;
     if (this._oneShotDone) return;
 
-    const dt = Math.min(delta * 0.001, 0.05); // cap at 50ms
+    // TASK-390: Throttle particle updates to 30fps max (every 33ms)
+    // This halves GPU particle overhead while maintaining visual quality
+    this._tickAccum = (this._tickAccum || 0) + delta;
+    if (this._tickAccum < 33) return;
+    const actualDelta = this._tickAccum;
+    this._tickAccum = 0;
+
+    const dt = Math.min(actualDelta * 0.001, 0.1); // cap at 100ms
     const positions = this._geometry.attributes.position.array;
     const opacities = this._geometry.attributes.aOpacity.array;
     const lt = this._lifetimes;
@@ -446,10 +453,11 @@ AFRAME.registerComponent('gpu-particles', {
     const count = this.data.count;
     const preset = this._preset;
     const isOneShot = this.data.oneShot;
+    const baseOpacity = this.data.opacity;
     let allDead = true;
 
     for (let i = 0; i < count; i++) {
-      lt[i] += delta;
+      lt[i] += actualDelta;
 
       if (lt[i] >= mlt[i]) {
         if (isOneShot || !preset.respawn) {
@@ -459,7 +467,7 @@ AFRAME.registerComponent('gpu-particles', {
         // Respawn
         lt[i] = 0;
         preset.respawn(positions, v, i);
-        opacities[i] = this.data.opacity;
+        opacities[i] = baseOpacity;
       } else {
         allDead = false;
       }
@@ -467,9 +475,9 @@ AFRAME.registerComponent('gpu-particles', {
       // Fade out near end of life
       const lifeRatio = lt[i] / mlt[i];
       if (lifeRatio > 0.7) {
-        opacities[i] = this.data.opacity * (1 - (lifeRatio - 0.7) / 0.3);
+        opacities[i] = baseOpacity * (1 - (lifeRatio - 0.7) / 0.3);
       } else if (lifeRatio < 0.1 && isOneShot) {
-        opacities[i] = this.data.opacity * (lifeRatio / 0.1);
+        opacities[i] = baseOpacity * (lifeRatio / 0.1);
       }
 
       preset.update(positions, v, lt, mlt, i, dt);

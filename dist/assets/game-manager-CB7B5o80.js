@@ -1,1 +1,0 @@
-const s=Object.freeze({MENU:"menu",PLAYING:"playing",PAUSED:"paused",GAME_OVER:"game_over"});class a{constructor(){this._state=s.MENU,this._listeners=[]}get state(){return this._state}changeState(t){this._state!==t&&(this._state=t,this._listeners.forEach(e=>e(this._state)))}onStateChange(t){this._listeners.push(t)}}const r=new a;export{s as G,r as g};

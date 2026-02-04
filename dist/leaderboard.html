@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>VR Quest - Stats</title>
-  <script type="module" crossorigin src="/assets/stats-CSu8TZaM.js"></script>
+  <title>VR Quest - Leaderboard</title>
+  <script type="module" crossorigin src="/assets/leaderboard-BKmSfaYa.js"></script>
   <link rel="modulepreload" crossorigin href="/assets/auth-manager-BjDH3exD.js">
+  <link rel="modulepreload" crossorigin href="/assets/leaderboard-manager-CcsP2fD-.js">
+  <link rel="modulepreload" crossorigin href="/assets/friend-manager-ChPTBX7N.js">
   <link rel="modulepreload" crossorigin href="/assets/rank-system-BFO9Ltj3.js">
-  <link rel="modulepreload" crossorigin href="/assets/audio-manager-zsCpgipr.js">
-  <link rel="modulepreload" crossorigin href="/assets/achievements-FCDtQXnT.js">
   <link rel="stylesheet" crossorigin href="/assets/auth-manager-Bz-KK8O_.css">
 </head>
 <body>
@@ -16,18 +16,14 @@
 
   <div id="overlay">
     <div class="menu stats-menu">
-      <h1>Stats</h1>
+      <h1>Leaderboard</h1>
 
-      <div class="stats-grid" id="stats-summary"></div>
+      <div class="lb-tabs" id="lb-tabs"></div>
+      <div class="lb-tabs" id="lb-filter" style="margin-bottom: 8px"></div>
 
-      <div class="section-label">Per Mode</div>
-      <div id="stats-modes"></div>
+      <div id="lb-rank-info" style="font-size: 0.75rem; color: #888; margin-bottom: 8px; text-align: center;"></div>
 
-      <div class="section-label">Weapon Usage</div>
-      <div id="stats-weapons"></div>
-
-      <div class="section-label">Recent Games</div>
-      <div id="stats-recent"></div>
+      <div class="leaderboard" id="lb-list" style="max-height: 350px"></div>
 
       <div class="buttons" style="margin-top: 16px">
         <button id="btn-back" class="btn btn-secondary">Back to Menu</button>

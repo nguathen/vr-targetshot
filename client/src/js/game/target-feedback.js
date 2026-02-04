@@ -9,6 +9,49 @@ export default class TargetFeedback {
   constructor(ts) {
     /** @type {import('./target-system.js').default} */
     this._ts = ts;
+    // TASK-389: Damage number object pool
+    this._damageNumberPool = [];
+    this._damageNumberPoolSize = 15;
+    this._poolInitialized = false;
+  }
+
+  // TASK-389: Initialize damage number pool
+  _ensureDamagePool() {
+    if (this._poolInitialized) return;
+    this._poolInitialized = true;
+
+    const scene = this._ts._container?.sceneEl || document.querySelector('a-scene');
+    if (!scene) return;
+
+    for (let i = 0; i < this._damageNumberPoolSize; i++) {
+      const el = document.createElement('a-entity');
+      el.setAttribute('visible', 'false');
+      el.setAttribute('text', {
+        value: '',
+        align: 'center',
+        color: '#ffffff',
+        width: 4,
+        font: 'mozillavr',
+      });
+      el.setAttribute('look-at', '[camera]');
+      el.classList.add('damage-number-pooled');
+      el._pooled = true;
+      scene.appendChild(el);
+      this._damageNumberPool.push(el);
+    }
+  }
+
+  // TASK-389: Get entity from pool
+  _getDamageNumberFromPool() {
+    this._ensureDamagePool();
+    // Find first available (invisible) entity
+    for (const el of this._damageNumberPool) {
+      if (!el.getAttribute('visible')) {
+        return el;
+      }
+    }
+    // All in use, return null (will fallback to createElement)
+    return null;
   }
 
   // TASK-367: Combo lost feedback — visual + audio when losing a high combo
@@ -117,15 +160,25 @@ export default class TargetFeedback {
     if (ts._slowMoActive) return;
     ts._slowMoActive = true;
 
-    // Store original animation durations and slow them
+    // TASK-386: Optimized slow-motion — access Three.js animation mixer directly
+    // instead of DOM queries, batch all updates in single RAF
     const animData = [];
+
+    // Single pass through targets, cache animation components
     ts._targets.forEach(el => {
+      const obj3D = el.object3D;
+      if (!obj3D) return;
+
+      // Access A-Frame animation components directly (no DOM query)
+      const comps = el.components;
       ['animation__move', 'animation__float', 'animation__rotate'].forEach(name => {
-        const attr = el.getAttribute(name);
-        if (attr && attr.dur) {
-          const origDur = attr.dur;
-          animData.push({ el, name, origDur });
-          el.setAttribute(name, 'dur', origDur * 3);
+        const comp = comps[name];
+        if (comp && comp.data && comp.data.dur) {
+          const origDur = comp.data.dur;
+          animData.push({ comp, origDur });
+          // Direct property update (no setAttribute)
+          comp.data.dur = origDur * 3;
+          if (comp.animation) comp.animation.duration = origDur * 3;
         }
       });
     });
@@ -137,10 +190,14 @@ export default class TargetFeedback {
     // Restore after 300ms
     ts._slowMoTimeout = setTimeout(() => {
       ts._slowMoActive = false;
-      animData.forEach(({ el, name, origDur }) => {
-        if (el.parentNode) {
-          el.setAttribute(name, 'dur', origDur);
-        }
+      // Batch restore in RAF to avoid frame stutter
+      requestAnimationFrame(() => {
+        animData.forEach(({ comp, origDur }) => {
+          if (comp && comp.el && comp.el.parentNode) {
+            comp.data.dur = origDur;
+            if (comp.animation) comp.animation.duration = origDur;
+          }
+        });
       });
       document.dispatchEvent(new CustomEvent('slow-motion', { detail: { active: false } }));
     }, 300);
@@ -152,10 +209,51 @@ export default class TargetFeedback {
     if (!scene) return;
 
     const text = points >= 0 ? `+${points}${suffix}` : `${points}`;
-    const el = document.createElement('a-entity');
-    el.setAttribute('position', `${pos.x} ${pos.y + 0.3} ${pos.z}`);
-    el.setAttribute('damage-number', `text: ${text}; color: ${color}`);
-    scene.appendChild(el);
+
+    // TASK-389: Try to use pooled entity first
+    let el = this._getDamageNumberFromPool();
+    if (el) {
+      // Reuse pooled entity
+      el.object3D.position.set(pos.x, pos.y + 0.3, pos.z);
+      el.setAttribute('text', { value: text, color: color, opacity: 1 });
+      el.setAttribute('visible', 'true');
+      el.object3D.scale.set(0.5, 0.5, 0.5);
+
+      // Animate rise
+      el.setAttribute('animation__rise', {
+        property: 'position',
+        to: `${pos.x} ${pos.y + 0.9} ${pos.z}`,
+        dur: 800,
+        easing: 'easeOutQuad',
+      });
+      el.setAttribute('animation__fade', {
+        property: 'text.opacity',
+        to: 0,
+        dur: 800,
+        easing: 'easeInQuad',
+      });
+      el.setAttribute('animation__grow', {
+        property: 'scale',
+        from: '0.5 0.5 0.5',
+        to: '1 1 1',
+        dur: 200,
+        easing: 'easeOutBack',
+      });
+
+      // Return to pool after animation
+      setTimeout(() => {
+        el.setAttribute('visible', 'false');
+        el.removeAttribute('animation__rise');
+        el.removeAttribute('animation__fade');
+        el.removeAttribute('animation__grow');
+      }, 850);
+    } else {
+      // Fallback: create new element (pool exhausted)
+      el = document.createElement('a-entity');
+      el.setAttribute('position', `${pos.x} ${pos.y + 0.3} ${pos.z}`);
+      el.setAttribute('damage-number', `text: ${text}; color: ${color}`);
+      scene.appendChild(el);
+    }
   }
 
   flashScreen(type) {

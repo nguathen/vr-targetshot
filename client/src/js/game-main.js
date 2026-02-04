@@ -11,7 +11,7 @@ import { checkProgress } from './game/daily-challenge.js';
 import { checkAchievements } from './game/achievements.js';
 import { applyTheme } from './game/environment-themes.js';
 import { getSkinOverrides } from './game/weapon-skins.js';
-import { getSettings, getLevelScaledDifficulty } from './game/settings-util.js';
+import { getSettings, getLevelScaledDifficulty, isVRMode, isQuestDevice, applyQuestPresetIfNeeded } from './game/settings-util.js';
 import musicManager from './core/music-manager.js';
 import { buildSummary } from './game/game-summary.js';
 import powerUpManager from './game/power-up-manager.js';
@@ -23,6 +23,7 @@ import { checkNewUnlocks } from './game/unlock-tooltips.js';
 import { showAchievementToasts } from './game/achievement-toast.js';
 import { getRank } from './game/rank-system.js';
 import tensionSystem from './game/tension-system.js';
+import { preWarm as preWarmTargetModels } from './game/target-models.js';
 
 const COUNTDOWN_FROM = 3;
 
@@ -90,6 +91,9 @@ window.__audioManager = audioManager;
 window.__getSettings = getSettings;
 
 export function startGame({ mode, weapon, theme, onReturnToMenu }) {
+  // TASK-394: Auto-apply Quest VR quality preset on first load
+  applyQuestPresetIfNeeded();
+
   if (mode) gameModeManager.select(mode);
   if (weapon) weaponSystem.select(weapon);
   _onReturnToMenu = onReturnToMenu;
@@ -105,6 +109,12 @@ export function startGame({ mode, weapon, theme, onReturnToMenu }) {
 let _hudScore, _hudTimer, _hudCombo, _hudLives, _hudWeapon, _hudLevel, _hudPowerup, _hudReaction, _hudColorMatch;
 let _hudAccuracy, _hudPbPace, _hudStreak, _hudSurge, _hudDebuff;
 let _scene, _btnQuitVr;
+
+// TASK-388: Cached DOM queries to avoid per-event overhead
+let _cachedLights = [];
+let _cachedBarriers = [];
+let _cachedPillarToruses = [];
+let _lastBarrierGlowTime = 0;
 
 function _initOnce() {
   _hudScore = document.getElementById('hud-score');
@@ -400,10 +410,11 @@ function _activateLastStand() {
   }
   // Faster heartbeat
   tensionSystem.setHeartbeatRate?.(350);
-  // Micro camera shake
+  // TASK-387: Reduced shake interval from 200ms to 500ms (2x/sec instead of 5x/sec)
+  // Lower frequency is still perceptible but reduces event overhead
   _lastStandShakeTimer = setInterval(() => {
     document.dispatchEvent(new CustomEvent('camera-shake', { detail: { intensity: 0.005, duration: 50 } }));
-  }, 200);
+  }, 500);
   // HUD
   if (_hudCombo) {
     _hudCombo.setAttribute('value', '💀 LAST STAND');
@@ -473,11 +484,8 @@ function _startDarknessWave() {
   _darknessPhaseTimeout = setTimeout(() => {
     if (!_darknessActive) return;
     audioManager.playDarknessStart?.();
-    const gc = _scene?.querySelector('#game-content') || _scene;
-    if (!gc) return;
-    // Dim all lights
-    const lights = gc.querySelectorAll('a-light');
-    lights.forEach(l => {
+    // TASK-388: Use cached lights instead of DOM query
+    _cachedLights.forEach(l => {
       l._origIntensity = parseFloat(l.getAttribute('intensity') || '0.6');
       l.setAttribute('animation__dark', {
         property: 'intensity', to: l._origIntensity * 0.1,
@@ -507,18 +515,15 @@ function _endDarknessWave() {
   if (!_darknessActive) return;
   _darknessActive = false;
   window.__darknessActive = false;
-  const gc = _scene?.querySelector('#game-content') || _scene;
-  if (gc) {
-    const lights = gc.querySelectorAll('a-light');
-    lights.forEach(l => {
-      if (l._origIntensity !== undefined) {
-        l.setAttribute('animation__dark', {
-          property: 'intensity', to: l._origIntensity,
-          dur: 2000, easing: 'easeOutQuad',
-        });
-      }
-    });
-  }
+  // TASK-388: Use cached lights instead of DOM query
+  _cachedLights.forEach(l => {
+    if (l._origIntensity !== undefined) {
+      l.setAttribute('animation__dark', {
+        property: 'intensity', to: l._origIntensity,
+        dur: 2000, easing: 'easeOutQuad',
+      });
+    }
+  });
   document.dispatchEvent(new CustomEvent('darkness-active', { detail: { active: false } }));
   _resolveSpawnRate();
   if (_hudCombo) {
@@ -558,14 +563,16 @@ function _startOvertime() {
     dur: 300, loop: true, dir: 'alternate', easing: 'easeInOutSine',
   });
 
+  // TASK-387: Changed from 100ms to 1000ms to reduce GC pressure
+  // HUD updates only on whole second change, not 10x/sec
   _overtimeTimer = setInterval(() => {
-    _overtimeTime -= 0.1;
-    if (_hudTimer) _hudTimer.setAttribute('value', `OT: ${_overtimeTime.toFixed(1)}s`);
-    if (_overtimeTime % 1 < 0.15) audioManager.playOvertimeTick?.();
+    _overtimeTime -= 1;
+    if (_hudTimer) _hudTimer.setAttribute('value', `OT: ${Math.max(0, _overtimeTime).toFixed(0)}s`);
+    audioManager.playOvertimeTick?.();
     if (_overtimeTime <= 0) {
       _endOvertime();
     }
-  }, 100);
+  }, 1000);
 }
 
 function _endOvertime() {
@@ -609,6 +616,15 @@ function _initRound(themeParam) {
 
   // TASK-262: Arena reactions
   arenaReactions.init(_scene);
+
+  // TASK-388: Cache arena DOM elements for combo/darkness updates
+  const gc = _scene?.querySelector('#game-content') || _scene;
+  if (gc) {
+    _cachedLights = Array.from(gc.querySelectorAll('a-light'));
+    _cachedBarriers = Array.from(gc.querySelectorAll('.arena-barrier'));
+    _cachedPillarToruses = Array.from(gc.querySelectorAll('.arena-pillar a-torus'));
+  }
+  _lastBarrierGlowTime = 0;
 
   // V19: Tension system (vignette, surge, debuffs, arena walls)
   tensionSystem.start(_scene);
@@ -689,6 +705,9 @@ function _initRound(themeParam) {
   }, 3000);
 
   _updateLivesDisplay();
+
+  // TASK-382: Pre-warm target models during loading (before countdown)
+  preWarmTargetModels();
 
   // Ambient environment motion
   _startAmbientMotion(_scene);
@@ -989,93 +1008,40 @@ function _spawnAmbientParticles(sceneEl) {
 
   // TASK-320: Use GPU particles when available
   if (settings.particles !== 'off' && AFRAME.components['gpu-particles']) {
-    const countMul = settings.particles === 'low' ? 0.5 : 1;
+    // TASK-391: Drastically reduce particles in VR mode for 72 FPS
+    // Desktop: 1200 dust + 800 sparks = 2000 total
+    // VR: 120 dust + 80 sparks = 200 total (10% of desktop)
+    const vrMode = isVRMode() || isQuestDevice() || settings.particles === 'vr';
+    let dustCount, sparksCount;
+
+    if (vrMode) {
+      dustCount = 120;
+      sparksCount = 80;
+    } else if (settings.particles === 'low') {
+      dustCount = 600;
+      sparksCount = 400;
+    } else {
+      dustCount = 1200;
+      sparksCount = 800;
+    }
 
     // Dust motes
     const dust = document.createElement('a-entity');
     dust.setAttribute('class', 'ambient-particle');
-    dust.setAttribute('gpu-particles', `preset: dust; count: ${Math.round(1200 * countMul)}; color: ${palette.dust}; area: 28; height: 5; opacity: 0.15`);
+    dust.setAttribute('gpu-particles', `preset: dust; count: ${dustCount}; color: ${palette.dust}; area: 28; height: 5; opacity: 0.15`);
     sceneEl.appendChild(dust);
 
     // Energy sparks
     const sparks = document.createElement('a-entity');
     sparks.setAttribute('class', 'ambient-particle');
-    sparks.setAttribute('gpu-particles', `preset: ambient; count: ${Math.round(800 * countMul)}; color: ${palette.sparks}; area: 24; height: 4; opacity: 0.4; size: 0.008`);
+    sparks.setAttribute('gpu-particles', `preset: ambient; count: ${sparksCount}; color: ${palette.sparks}; area: 24; height: 4; opacity: 0.4; size: 0.008`);
     sceneEl.appendChild(sparks);
 
-    return;
+    if (vrMode) {
+      console.log(`[particles] VR mode: ${dustCount} dust + ${sparksCount} sparks = ${dustCount + sparksCount} total`);
+    }
   }
-
-  // Legacy fallback: entity-based ambient particles
-  // --- Dust motes (40) ---
-  for (let i = 0; i < 40; i++) {
-    const p = document.createElement('a-sphere');
-    const x = (Math.random() - 0.5) * 28;
-    const y = Math.random() * 5 + 0.3;
-    const z = (Math.random() - 0.5) * 28;
-    p.setAttribute('class', 'ambient-particle');
-    p.setAttribute('radius', String(0.008 + Math.random() * 0.012));
-    p.setAttribute('material', `shader: flat; color: ${palette.dust}; opacity: ${0.08 + Math.random() * 0.12}`);
-    p.setAttribute('position', `${x} ${y} ${z}`);
-    p.setAttribute('animation', {
-      property: 'position',
-      to: `${x + (Math.random() - 0.5) * 3} ${y + 0.5 + Math.random() * 1.5} ${z + (Math.random() - 0.5) * 3}`,
-      dur: 8000 + Math.random() * 6000,
-      easing: 'linear', loop: true, dir: 'alternate',
-    });
-    sceneEl.appendChild(p);
-  }
-
-  // --- Energy sparks (20) ---
-  for (let i = 0; i < 20; i++) {
-    const p = document.createElement('a-sphere');
-    const x = (Math.random() - 0.5) * 24;
-    const y = Math.random() * 4 + 1;
-    const z = (Math.random() - 0.5) * 24;
-    p.setAttribute('class', 'ambient-particle');
-    p.setAttribute('radius', String(0.006 + Math.random() * 0.008));
-    p.setAttribute('material', `shader: flat; color: ${palette.sparks}; opacity: ${0.3 + Math.random() * 0.4}`);
-    p.setAttribute('position', `${x} ${y} ${z}`);
-    p.setAttribute('animation__drift', {
-      property: 'position',
-      to: `${x + (Math.random() - 0.5) * 5} ${y + (Math.random() - 0.5) * 3} ${z + (Math.random() - 0.5) * 5}`,
-      dur: 2000 + Math.random() * 2000,
-      easing: 'easeInOutSine', loop: true, dir: 'alternate',
-    });
-    p.setAttribute('animation__twinkle', {
-      property: 'material.opacity', from: 0.1, to: 0.6 + Math.random() * 0.3,
-      dur: 600 + Math.random() * 800,
-      loop: true, dir: 'alternate', easing: 'easeInOutSine',
-    });
-    sceneEl.appendChild(p);
-  }
-
-  // --- Floating debris (10) ---
-  const debrisGeoms = ['a-icosahedron', 'a-octahedron', 'a-dodecahedron'];
-  for (let i = 0; i < 10; i++) {
-    const geom = debrisGeoms[Math.floor(Math.random() * debrisGeoms.length)];
-    const p = document.createElement(geom);
-    const x = (Math.random() - 0.5) * 26;
-    const y = Math.random() * 4 + 1;
-    const z = (Math.random() - 0.5) * 26;
-    p.setAttribute('class', 'ambient-particle');
-    p.setAttribute('radius', String(0.02 + Math.random() * 0.03));
-    p.setAttribute('material', `color: ${palette.debris}; metalness: 0.7; roughness: 0.3; emissive: ${palette.debris}; emissiveIntensity: 0.3; opacity: ${0.15 + Math.random() * 0.2}`);
-    p.setAttribute('position', `${x} ${y} ${z}`);
-    p.setAttribute('animation__float', {
-      property: 'position',
-      to: `${x + (Math.random() - 0.5) * 2} ${y + Math.random() * 2} ${z + (Math.random() - 0.5) * 2}`,
-      dur: 7000 + Math.random() * 5000,
-      easing: 'easeInOutSine', loop: true, dir: 'alternate',
-    });
-    p.setAttribute('animation__spin', {
-      property: 'rotation',
-      to: `${Math.random() * 360} ${Math.random() * 360} ${Math.random() * 360}`,
-      dur: 6000 + Math.random() * 6000,
-      easing: 'linear', loop: true,
-    });
-    sceneEl.appendChild(p);
-  }
+  // TASK-383: Legacy entity-based fallback removed — GPU particles only
 }
 
 /** Spawn burst particles on game events (target destroy, combo, power-up) */
@@ -1644,20 +1610,24 @@ function _updateAccuracyHud() {
 }
 
 function _updateBarrierComboGlow(combo) {
-  const barriers = document.querySelectorAll('.arena-barrier');
+  // TASK-388: Throttle barrier glow updates to max 1 per 100ms
+  const now = performance.now();
+  if (now - _lastBarrierGlowTime < 100) return;
+  _lastBarrierGlowTime = now;
+
+  // TASK-388: Use cached barriers instead of DOM query
   if (combo >= 10) {
-    barriers.forEach(b => b.setAttribute('material', 'opacity', 0.06));
+    _cachedBarriers.forEach(b => b.setAttribute('material', 'opacity', 0.06));
   } else if (combo >= 5) {
-    barriers.forEach(b => b.setAttribute('material', 'opacity', 0.035));
+    _cachedBarriers.forEach(b => b.setAttribute('material', 'opacity', 0.035));
   } else {
-    barriers.forEach(b => b.setAttribute('material', 'opacity', 0.015));
+    _cachedBarriers.forEach(b => b.setAttribute('material', 'opacity', 0.015));
   }
 
-  // Pillar ring rotation speed scales with combo
-  const pillarToruses = document.querySelectorAll('.arena-pillar a-torus');
+  // TASK-388: Use cached pillar toruses — rotation speed scales with combo
   const baseDur = 6000;
   const speedFactor = combo >= 15 ? 0.3 : combo >= 10 ? 0.5 : combo >= 5 ? 0.7 : 1.0;
-  pillarToruses.forEach((t, i) => {
+  _cachedPillarToruses.forEach((t, i) => {
     t.setAttribute('animation__combospin', 'dur', Math.round((baseDur + i * 500) * speedFactor));
   });
 }

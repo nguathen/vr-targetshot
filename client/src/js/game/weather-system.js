@@ -4,7 +4,10 @@
  * - Cyber: neon rain with splash
  * - Space: cosmic dust + meteor streaks
  * - Underwater: rising bubbles + jellyfish
+ *
+ * TASK-392: VR mode detection — disable or drastically reduce particles for Quest 2.
  */
+import { isVRMode, isQuestDevice } from './settings-util.js';
 
 const WEATHER_CONFIGS = {
   cyber: {
@@ -102,13 +105,28 @@ class WeatherSystem {
   }
 
   _startGPU(cfg) {
+    // TASK-392: Check VR mode — drastically reduce or skip weather particles
+    const vrMode = isVRMode() || isQuestDevice();
+
+    // In VR: use minimal particles (100 max) or skip entirely for performance
+    // Desktop: use 10x config count (was 30x, reduced for better FPS)
+    let particleCount;
+    if (vrMode) {
+      // VR mode: 100 particles max for any weather type
+      particleCount = Math.min(100, cfg.count * 2);
+      console.log(`[weather] VR mode: ${particleCount} particles (capped)`);
+    } else {
+      // Desktop: 10x multiplier (reduced from 30x)
+      particleCount = cfg.count * 10;
+    }
+
     const presetMap = { rain: 'rain', dust: 'dust', bubbles: 'bubbles' };
     const preset = presetMap[cfg.type] || 'dust';
     const gpuEl = document.createElement('a-entity');
     gpuEl.id = 'weather-gpu-particles';
     gpuEl.setAttribute('gpu-particles', {
       preset,
-      count: cfg.count * 30, // GPU can handle many more
+      count: particleCount,
       color: cfg.colors[0],
       color2: cfg.colors[1] || cfg.colors[0],
       size: cfg.sizeMax,
@@ -116,13 +134,14 @@ class WeatherSystem {
       area: 30,
       height: cfg.spawnY,
       lifetime: 6000,
-      opacity: 0.5,
+      opacity: vrMode ? 0.3 : 0.5, // Slightly lower opacity in VR
     });
     this._container.appendChild(gpuEl);
     this._gpuEl = gpuEl;
 
     // Meteor timer for space theme (keep entity-based, it's only occasional)
-    if (cfg.meteor) {
+    // TASK-392: Skip meteors in VR (each meteor creates 4+ entities)
+    if (cfg.meteor && !vrMode) {
       this._meteorTimer = setInterval(() => {
         if (this._running && Math.random() < cfg.meteorChance) {
           this._spawnMeteor();

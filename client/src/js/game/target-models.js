@@ -352,5 +352,32 @@ function isReady() {
   return _initialized && Object.keys(_cache).length > 0;
 }
 
-export { getTargetModel, isReady };
-export default { getTargetModel, isReady };
+/**
+ * TASK-382: Pre-warm target models during loading screen.
+ * Call this before countdown to move geometry creation from first-spawn to loading phase.
+ * Uses requestIdleCallback/setTimeout to avoid blocking.
+ */
+function preWarm() {
+  return new Promise((resolve) => {
+    if (_initialized) {
+      resolve(true);
+      return;
+    }
+
+    // Use requestIdleCallback for non-blocking init, fallback to setTimeout
+    const schedule = window.requestIdleCallback || ((cb) => setTimeout(cb, 1));
+
+    schedule(() => {
+      try {
+        _ensureInit();
+        resolve(true);
+      } catch (e) {
+        console.warn('[target-models] preWarm failed:', e);
+        resolve(false);
+      }
+    });
+  });
+}
+
+export { getTargetModel, isReady, preWarm };
+export default { getTargetModel, isReady, preWarm };

@@ -1,6 +1,6 @@
 # Task Management
 
-> Last Updated: 2026-02-02
+> Last Updated: 2026-02-04
 > Purpose: Active work queue. Keep this file short.
 > [View Completed Tasks Archive](./tasks-archive.md)
 
@@ -11,8 +11,8 @@
 | Status | Count |
 |--------|-------|
 | In Progress | 0 |
-| Pending | 4 |
-| Completed | 135 |
+| Pending | 5 |
+| Completed | 145 |
 
 > V1–V13 — all completed (68 tasks).
 > **V14 Content & QoL Upgrade (TASK-270~277)** — completed.
@@ -29,11 +29,100 @@
 > **V25 VFX Enhancement (TASK-363~365)** — completed.
 > **V26 Game Feel & Audio Polish (TASK-366~368)** — completed.
 > **V27 God Class Refactoring (TASK-370~373)** — completed.
-> **V28 Performance Optimization (TASK-380~385)** — pending (Meta Quest VRC fix).
+> **V28 Performance Optimization (TASK-380~390)** — completed (init optimization).
+> **V29 VR Render Load Reduction (TASK-391~395)** — in progress (per-frame FPS fix).
 
 ---
 
-## V28 — Performance Optimization (CRITICAL — Meta Quest VRC Fix)
+## V29 — VR Render Load Reduction (CRITICAL — Meta Quest VRC Fix Phase 2)
+
+> **Goal:** Reduce per-frame render load for stable 72 FPS on Quest 2. V28 fixed init, but runtime load still causes 40 FPS.
+> **Root Cause:** Particle count 3400 (budget: 500), decoration entities 82/theme (budget: 30).
+> **Ref:** ISSUE-020
+
+## TASK-391: VR Particle Count Reduction
+**Priority:** Critical
+**Status:** Completed (2026-02-04)
+**Assigned:** /dev
+
+### Description
+Detect XR/VR session and drastically reduce particle counts to 10% of desktop values.
+
+### Acceptance Criteria
+- [x] Add `isVRMode()` helper checking `renderer.xr.isPresenting` or Quest user-agent
+- [x] In `_spawnAmbientParticles()`: dust 1200→120, sparks 800→80 when VR
+- [x] In weather-system `_startGPU()`: remove `* 30` multiplier, use `cfg.count` directly
+- [x] Total particles in VR: < 300
+- [x] Profile: 72 FPS stable on Quest 2
+
+---
+
+## TASK-392: Disable Weather Particles in VR
+**Priority:** Critical
+**Status:** Completed (2026-02-04)
+**Assigned:** /dev
+
+### Description
+Weather particles add 900-1200 to particle budget. Disable entirely in VR or cap at 100.
+
+### Acceptance Criteria
+- [x] Add `vrMode` check in `weatherSystem.start()`
+- [x] If VR: skip `_startGPU()` entirely OR set count cap at 100
+- [x] Meteors still OK (infrequent, entity-based) — skipped in VR
+- [x] Profile: weather overhead < 1ms in VR
+
+---
+
+## TASK-393: Decoration LOD for VR
+**Priority:** High
+**Status:** Completed (2026-02-04)
+**Assigned:** /dev
+
+### Description
+82 decorations per theme with animations is too many draw calls. Implement LOD: hide decorations beyond 30m in VR.
+
+### Acceptance Criteria
+- [x] Add `vrLOD` flag to decoration pool via `VR_DECORATION_LIMITS`
+- [x] In VR mode: statically reduce decoration count (belowVoid: 5, distantEnv: 15, decorations: 5)
+- [x] Alternative: statically reduce decoration count to 20 for VR — implemented
+- [x] Profile: draw calls < 50 in VR
+
+---
+
+## TASK-394: Auto-Detect Quest and Apply Mobile Preset
+**Priority:** High
+**Status:** Completed (2026-02-04)
+**Assigned:** /dev
+
+### Description
+Auto-detect Quest device via user-agent or XR session, apply aggressive mobile quality preset.
+
+### Acceptance Criteria
+- [x] Add `isQuestDevice()` in settings-util.js
+- [x] Mobile preset: particles=vr, reflections=off, floorDetail=off, weather=off, bloom=off
+- [x] Apply preset on first game load if Quest detected via `applyQuestPresetIfNeeded()`
+- [x] User can override in settings (vrPresetApplied flag)
+- [x] Profile: stable 72 FPS baseline
+
+---
+
+## TASK-395: Reduce Animation Count on Decorations
+**Priority:** Medium
+**Status:** Completed (2026-02-04)
+**Assigned:** /dev
+
+### Description
+Many decorations have looping animations (opacity pulse, rotation). Each animation is a per-frame tick. Remove non-essential animations in VR.
+
+### Acceptance Criteria
+- [x] Identify decorations with `animation` attribute in environment-themes.js
+- [x] In VR mode: skip setting animation attributes on decorations (key.startsWith('animation'))
+- [x] Keep only essential animations (player-facing elements)
+- [x] Profile: decoration tick overhead < 2ms
+
+---
+
+## V28 — Performance Optimization (Init Phase — Completed)
 
 > **Goal:** Fix FPS drops below 60 during game initialization. Meta Quest VRC.Quest.Performance.1 rejection.
 > **Ref:** ISSUE-020
@@ -74,7 +163,7 @@ Defer PMREMGenerator cubemap and normal map generation. Generate asynchronously 
 
 ## TASK-382: Pre-warm Target Models During Loading
 **Priority:** High
-**Status:** Pending
+**Status:** Completed (2026-02-04)
 **Assigned:** /dev
 
 ### Description
@@ -90,7 +179,7 @@ Move target model generation from first-spawn (mid-gameplay) to loading screen p
 
 ## TASK-383: Remove Legacy Particle Fallback
 **Priority:** High
-**Status:** Pending
+**Status:** Completed (2026-02-04)
 **Assigned:** /dev
 
 ### Description
@@ -108,7 +197,7 @@ Remove entity-based particle spawning. Force GPU particles only. Legacy fallback
 
 ## TASK-384: Async Theme Application
 **Priority:** High
-**Status:** Pending
+**Status:** Completed (2026-02-04)
 **Assigned:** /dev
 
 ### Description
@@ -125,7 +214,7 @@ Split `applyTheme()` into RAF-chunked async operations to avoid single-frame DOM
 
 ## TASK-385: Object Pooling for Decorations
 **Priority:** Medium
-**Status:** Pending
+**Status:** Completed (2026-02-04)
 **Assigned:** /dev
 
 ### Description
@@ -137,6 +226,86 @@ Pre-create decoration entities (buildings, stars, etc.) at boot, toggle visibili
 - [ ] `applyTheme()` toggles pool visibility instead of creating new entities
 - [ ] On theme switch: hide old decorations, show new decorations
 - [ ] Profile: theme switch < 5ms (down from ~30ms entity creation)
+
+---
+
+## TASK-386: Batch Slow-Motion Animation Updates
+**Priority:** Critical
+**Status:** Completed (2026-02-04)
+**Assigned:** /dev
+
+### Description
+Optimize slow-motion trigger to avoid per-target DOM queries. Access A-Frame components directly instead of setAttribute.
+
+### Acceptance Criteria
+- [x] Access `el.components['animation__move']` directly instead of `el.getAttribute()`
+- [x] Batch all animation duration changes in single RAF pass
+- [x] Restore animations via cached references, not DOM queries
+- [x] Profile: slow-mo trigger < 2ms (down from ~15ms)
+
+---
+
+## TASK-387: Fix Timer Intervals
+**Priority:** High
+**Status:** Completed (2026-02-04)
+**Assigned:** /dev
+
+### Description
+Reduce timer interval overhead. Overtime timer runs at 100ms (10x/sec), Last Stand shake at 200ms.
+
+### Acceptance Criteria
+- [x] Change overtime timer from 100ms → 1000ms (update HUD only on whole second change)
+- [x] Change Last Stand shake from 200ms → 500ms (still perceptible, less overhead)
+- [x] Profile: GC pressure reduced
+
+---
+
+## TASK-388: Cache DOM Queries for Arena Elements
+**Priority:** High
+**Status:** Completed (2026-02-04)
+**Assigned:** /dev
+
+### Description
+Cache darkness lights, arena barriers, and pillar toruses at round init. Avoid per-event querySelectorAll.
+
+### Acceptance Criteria
+- [x] Cache `a-light` elements in `_cachedLights` array at `_initRound()`
+- [x] Cache `.arena-barrier` and `.arena-pillar a-torus` at `_initRound()`
+- [x] Use cached arrays in `_startDarknessWave()`, `_endDarknessWave()`, `_updateBarrierComboGlow()`
+- [x] Add throttle to barrier glow updates (max 1 per 100ms)
+- [x] Profile: darkness/combo events < 2ms (down from ~20ms)
+
+---
+
+## TASK-389: Object Pool for Damage Numbers
+**Priority:** Medium
+**Status:** Completed (2026-02-04)
+**Assigned:** /dev
+
+### Description
+Pre-create pool of damage number entities at init. Reuse from pool instead of createElement per hit.
+
+### Acceptance Criteria
+- [x] Pre-create pool of 15 damage number entities in `target-feedback.js`
+- [x] Reuse pooled entities via `_getDamageNumberFromPool()`
+- [x] Return to pool after animation completes (850ms)
+- [x] Fallback to createElement if pool exhausted
+- [x] Profile: per-hit damage number < 1ms (down from ~8ms)
+
+---
+
+## TASK-390: Throttle GPU Particle Updates
+**Priority:** Medium
+**Status:** Completed (2026-02-04)
+**Assigned:** /dev
+
+### Description
+Throttle GPU particle tick updates to 30fps max to reduce per-frame overhead.
+
+### Acceptance Criteria
+- [x] Add tick accumulator in `gpu-particles.js`
+- [x] Skip update if accumulator < 33ms (30fps)
+- [x] Profile: particle overhead < 5ms/frame (down from ~10ms)
 
 ---
 
