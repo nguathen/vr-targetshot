@@ -3,7 +3,51 @@
  * Supports HP (multi-hit), damage numbers, and juicy explosion effects.
  *
  * Usage: <a-entity target-hit="hp: 2; targetType: heavy">
+ *
+ * Performance: V36 TASK-467 - Pooled shockwave/flash entities + cached DOM selectors
  */
+
+// V44 TASK-493: Cache Quest check to skip expensive effects (point lights exceed Quest's 2-light budget)
+const _isQuest = typeof VRCore !== 'undefined' && VRCore.isQuest && VRCore.isQuest();
+
+// V36 TASK-467: Module-level entity pools for shockwave/flash effects (shared across all targets)
+let _shockwavePool = null;
+let _flashLightPool = null;
+let _coreFlashPool = null;
+
+function _initPools(scene) {
+  if (_shockwavePool) return; // Already initialized
+
+  if (typeof ObjectPool === 'undefined' || !ObjectPool.create) {
+    console.warn('[target-hit] ObjectPool not available, falling back to createElement');
+    return;
+  }
+
+  // Shockwave ring pool
+  _shockwavePool = ObjectPool.create(() => {
+    const ring = document.createElement('a-ring');
+    ring.setAttribute('shadow', 'cast: false; receive: false');
+    ring.setAttribute('look-at', '[camera]');
+    scene.appendChild(ring);
+    return ring;
+  }, 8);
+
+  // Flash light pool
+  _flashLightPool = ObjectPool.create(() => {
+    const light = document.createElement('a-entity');
+    scene.appendChild(light);
+    return light;
+  }, 6);
+
+  // Core flash orb pool
+  _coreFlashPool = ObjectPool.create(() => {
+    const orb = document.createElement('a-sphere');
+    orb.setAttribute('shadow', 'cast: false; receive: false');
+    scene.appendChild(orb);
+    return orb;
+  }, 6);
+}
+
 AFRAME.registerComponent('target-hit', {
   schema: {
     hp: { type: 'int', default: 1 },
@@ -18,6 +62,17 @@ AFRAME.registerComponent('target-hit', {
     this.el.addEventListener('click', this._onClick);
     this._destroyed = false;
     this._hp = this.data.hp;
+
+    // V36 TASK-467: Cache DOM selectors (initialized on first use)
+    this._cachedBarriers = null;
+    this._cachedEdges = null;
+    this._cachedLights = null;
+    this._cachedPlatform = null;
+    this._cacheInitialized = false;
+
+    // V36 TASK-467: Debounce _pulseEnvironment to max 10 calls/sec
+    this._lastPulseTime = 0;
+    this._pulseDebounceMs = 100;
   },
 
   remove() {
@@ -82,10 +137,16 @@ AFRAME.registerComponent('target-hit', {
     this._spawnShockwave(scene, pos, color);
 
     // 3) Flash point light
-    this._spawnFlashLight(scene, pos, color);
+    // V44 TASK-493: Skip flash point light on Quest (exceeds 2-light budget → FPS drop)
+    if (!_isQuest) {
+      this._spawnFlashLight(scene, pos, color);
+    }
 
     // 4) Core flash sphere (bright orb)
-    this._spawnCoreFlash(scene, pos, color);
+    // V45 TASK-497: Skip core flash on Quest (reduce entity + animation count)
+    if (!_isQuest) {
+      this._spawnCoreFlash(scene, pos, color);
+    }
 
     // === 50ms: Particle burst (sparks + debris) ===
     setTimeout(() => {
@@ -123,9 +184,12 @@ AFRAME.registerComponent('target-hit', {
     }
 
     // === Second shockwave (delayed, larger, fainter) ===
-    setTimeout(() => {
-      this._spawnShockwave(scene, pos, color, true);
-    }, 80);
+    // V45 TASK-496: Skip secondary shockwave on Quest (reduce animation count)
+    if (!_isQuest) {
+      setTimeout(() => {
+        this._spawnShockwave(scene, pos, color, true);
+      }, 80);
+    }
 
     // === Camera shake + FOV punch on kill ===
     const shakeIntensity = type === 'heavy' ? 0.018 : type === 'bonus' ? 0.014 : 0.01;
@@ -146,7 +210,10 @@ AFRAME.registerComponent('target-hit', {
     }
 
     // === Barrier & platform reactive pulse ===
-    this._pulseEnvironment(color);
+    // V45 TASK-498: Skip environment pulse on Quest (too many setAttribute calls)
+    if (!_isQuest) {
+      this._pulseEnvironment(color);
+    }
 
     // === 350ms: Cleanup ===
     setTimeout(() => {
@@ -158,19 +225,28 @@ AFRAME.registerComponent('target-hit', {
   },
 
   _spawnShockwave(scene, pos, color, isSecondary) {
-    const ring = document.createElement('a-ring');
-    ring.setAttribute('position', `${pos.x} ${pos.y} ${pos.z}`);
-    ring.setAttribute('radius-inner', '0.01');
-    ring.setAttribute('radius-outer', '0.1');
+    // V36 TASK-467: Initialize pools if needed
+    if (!_shockwavePool) _initPools(scene);
 
     const opacity = isSecondary ? 0.4 : 0.8;
     const maxOuter = isSecondary ? 3.5 : 2.5;
     const maxInner = isSecondary ? 3.0 : 2.0;
     const dur = isSecondary ? 450 : 350;
 
+    // Use pool if available, fallback to createElement
+    const ring = _shockwavePool ? _shockwavePool.get() : document.createElement('a-ring');
+
+    ring.setAttribute('position', `${pos.x} ${pos.y} ${pos.z}`);
+    ring.setAttribute('radius-inner', '0.01');
+    ring.setAttribute('radius-outer', '0.1');
     ring.setAttribute('material', `shader: flat; color: ${color}; opacity: ${opacity}; transparent: true; side: double`);
-    ring.setAttribute('look-at', '[camera]');
-    ring.setAttribute('shadow', 'cast: false; receive: false');
+    ring.setAttribute('visible', 'true');
+
+    if (!_shockwavePool) {
+      ring.setAttribute('look-at', '[camera]');
+      ring.setAttribute('shadow', 'cast: false; receive: false');
+      scene.appendChild(ring);
+    }
 
     ring.setAttribute('animation__expand', {
       property: 'geometry.radiusOuter',
@@ -188,16 +264,32 @@ AFRAME.registerComponent('target-hit', {
       dur: dur - 50, easing: 'easeOutQuad',
     });
 
-    scene.appendChild(ring);
     setTimeout(() => {
-      if (ring.parentNode) ring.parentNode.removeChild(ring);
+      if (_shockwavePool) {
+        ring.setAttribute('visible', 'false');
+        ring.removeAttribute('animation__expand');
+        ring.removeAttribute('animation__expandInner');
+        ring.removeAttribute('animation__fade');
+        _shockwavePool.release(ring);
+      } else if (ring.parentNode) {
+        ring.parentNode.removeChild(ring);
+      }
     }, dur);
   },
 
   _spawnFlashLight(scene, pos, color) {
-    const light = document.createElement('a-entity');
+    // V36 TASK-467: Use pool if available
+    if (!_flashLightPool) _initPools(scene);
+
+    const light = _flashLightPool ? _flashLightPool.get() : document.createElement('a-entity');
+
     light.setAttribute('position', `${pos.x} ${pos.y} ${pos.z}`);
     light.setAttribute('light', `type: point; color: ${color}; intensity: 3; distance: 6; decay: 2`);
+    light.setAttribute('visible', 'true');
+
+    if (!_flashLightPool) {
+      scene.appendChild(light);
+    }
 
     light.setAttribute('animation__dim', {
       property: 'light.intensity',
@@ -205,18 +297,34 @@ AFRAME.registerComponent('target-hit', {
       dur: 250, easing: 'easeOutQuad',
     });
 
-    scene.appendChild(light);
     setTimeout(() => {
-      if (light.parentNode) light.parentNode.removeChild(light);
+      if (_flashLightPool) {
+        light.setAttribute('visible', 'false');
+        light.removeAttribute('animation__dim');
+        light.removeAttribute('light');
+        _flashLightPool.release(light);
+      } else if (light.parentNode) {
+        light.parentNode.removeChild(light);
+      }
     }, 300);
   },
 
   _spawnCoreFlash(scene, pos, color) {
-    const orb = document.createElement('a-sphere');
+    // V36 TASK-467: Use pool if available
+    if (!_coreFlashPool) _initPools(scene);
+
+    const orb = _coreFlashPool ? _coreFlashPool.get() : document.createElement('a-sphere');
+
     orb.setAttribute('position', `${pos.x} ${pos.y} ${pos.z}`);
     orb.setAttribute('radius', '0.05');
     orb.setAttribute('material', `shader: flat; color: #ffffff; emissive: ${color}; emissiveIntensity: 2; opacity: 0.9; transparent: true`);
-    orb.setAttribute('shadow', 'cast: false; receive: false');
+    orb.setAttribute('visible', 'true');
+    orb.setAttribute('scale', '1 1 1');
+
+    if (!_coreFlashPool) {
+      orb.setAttribute('shadow', 'cast: false; receive: false');
+      scene.appendChild(orb);
+    }
 
     orb.setAttribute('animation__grow', {
       property: 'scale',
@@ -229,57 +337,88 @@ AFRAME.registerComponent('target-hit', {
       dur: 150, easing: 'easeInQuad',
     });
 
-    scene.appendChild(orb);
     setTimeout(() => {
-      if (orb.parentNode) orb.parentNode.removeChild(orb);
+      if (_coreFlashPool) {
+        orb.setAttribute('visible', 'false');
+        orb.removeAttribute('animation__grow');
+        orb.removeAttribute('animation__fade');
+        _coreFlashPool.release(orb);
+      } else if (orb.parentNode) {
+        orb.parentNode.removeChild(orb);
+      }
     }, 200);
   },
 
+  _initCache() {
+    // V36 TASK-467: Cache DOM queries once on first pulse
+    if (this._cacheInitialized) return;
+    const scene = this.el.sceneEl;
+    if (!scene) return;
+
+    this._cachedBarriers = Array.from(scene.querySelectorAll('.arena-barrier'));
+    this._cachedEdges = Array.from(scene.querySelectorAll('.platform-edge'));
+    this._cachedLights = Array.from(scene.querySelectorAll('[light]'));
+    this._cachedPlatform = scene.querySelector('.platform-base');
+    this._cacheInitialized = true;
+  },
+
   _pulseEnvironment(color) {
+    // V36 TASK-467: Debounce to max 10 calls/sec
+    const now = Date.now();
+    if (now - this._lastPulseTime < this._pulseDebounceMs) {
+      return; // Skip this pulse
+    }
+    this._lastPulseTime = now;
+
+    // V36 TASK-467: Initialize cache on first call
+    this._initCache();
+
     const type = this.data.targetType;
     const isBoss = type === 'boss';
 
-    // Pulse nearest barrier
-    const barriers = document.querySelectorAll('.arena-barrier');
-    barriers.forEach(b => {
-      b.setAttribute('animation__pulse', {
-        property: 'material.opacity', from: isBoss ? 0.25 : 0.12, to: 0.03,
-        dur: isBoss ? 500 : 300, easing: 'easeOutQuad',
+    // Pulse barriers (use cached)
+    if (this._cachedBarriers) {
+      this._cachedBarriers.forEach(b => {
+        b.setAttribute('animation__pulse', {
+          property: 'material.opacity', from: isBoss ? 0.25 : 0.12, to: 0.03,
+          dur: isBoss ? 500 : 300, easing: 'easeOutQuad',
+        });
       });
-    });
-    // Pulse platform edge glow
-    const edges = document.querySelectorAll('.platform-edge');
-    edges.forEach(e => {
-      e.setAttribute('animation__hitpulse', {
-        property: 'material.opacity', from: isBoss ? 1.0 : 0.9, to: 0.3,
-        dur: isBoss ? 600 : 400, easing: 'easeOutQuad',
-      });
-    });
+    }
 
-    // Pulse scene lights — flash nearest ambient/point lights
-    const scene = this.el.sceneEl;
-    const lights = scene.querySelectorAll('[light]');
-    const pulseColor = isBoss ? '#ffffff' : color;
-    lights.forEach(l => {
-      const lightData = l.getAttribute('light');
-      if (!lightData) return;
-      const origIntensity = lightData.intensity || 1;
-      const boost = isBoss ? origIntensity + 2.5 : origIntensity + 1.0;
-      l.setAttribute('animation__lightpulse', {
-        property: 'light.intensity', from: boost, to: origIntensity,
-        dur: isBoss ? 600 : 350, easing: 'easeOutQuad',
+    // Pulse platform edges (use cached)
+    if (this._cachedEdges) {
+      this._cachedEdges.forEach(e => {
+        e.setAttribute('animation__hitpulse', {
+          property: 'material.opacity', from: isBoss ? 1.0 : 0.9, to: 0.3,
+          dur: isBoss ? 600 : 400, easing: 'easeOutQuad',
+        });
       });
-      if (isBoss) {
-        const origColor = lightData.color || '#ffffff';
-        l.setAttribute('light', 'color', '#ffffff');
-        setTimeout(() => { l.setAttribute('light', 'color', origColor); }, 400);
-      }
-    });
+    }
 
-    // Platform glow intensify on kill
-    const platformBase = scene.querySelector('.platform-base');
-    if (platformBase) {
-      platformBase.setAttribute('animation__killglow', {
+    // Pulse scene lights (use cached)
+    if (this._cachedLights) {
+      const pulseColor = isBoss ? '#ffffff' : color;
+      this._cachedLights.forEach(l => {
+        const lightData = l.getAttribute('light');
+        if (!lightData) return;
+        const origIntensity = lightData.intensity || 1;
+        const boost = isBoss ? origIntensity + 2.5 : origIntensity + 1.0;
+        l.setAttribute('animation__lightpulse', {
+          property: 'light.intensity', from: boost, to: origIntensity,
+          dur: isBoss ? 600 : 350, easing: 'easeOutQuad',
+        });
+        if (isBoss) {
+          const origColor = lightData.color || '#ffffff';
+          l.setAttribute('light', 'color', '#ffffff');
+          setTimeout(() => { l.setAttribute('light', 'color', origColor); }, 400);
+        }
+      });
+    }
+
+    // Platform glow (use cached)
+    if (this._cachedPlatform) {
+      this._cachedPlatform.setAttribute('animation__killglow', {
         property: 'material.opacity', from: isBoss ? 0.5 : 0.3, to: 0.1,
         dur: isBoss ? 600 : 400, easing: 'easeOutQuad',
       });
@@ -288,16 +427,21 @@ AFRAME.registerComponent('target-hit', {
 
   _spawnParticles(color, pos) {
     const type = this.data.targetType;
-    const counts = { standard: 15, heavy: 25, bonus: 20, decoy: 8, speed: 18, powerup: 18 };
-    const count = counts[type] || 15;
+    // V44 TASK-495: Reduce particle count on Quest (fewer draw calls)
+    const counts = _isQuest
+      ? { standard: 6, heavy: 10, bonus: 8, decoy: 4, speed: 8, powerup: 8 }
+      : { standard: 15, heavy: 25, bonus: 20, decoy: 8, speed: 18, powerup: 18 };
+    const count = counts[type] || (_isQuest ? 6 : 15);
     const burstColor = type === 'bonus' ? '#ffd700' : type === 'decoy' ? '#661111' : color;
 
     // TASK-320: Use GPU particles when available, fallback to entity burst
+    // V45 TASK-499: Skip entity particle fallback on Quest (too many entities)
     if (window.__spawnGPUBurst) {
       window.__spawnGPUBurst(this.el.sceneEl, pos, {
         count, color: burstColor, size: 0.04, speed: 4, lifetime: 500,
       });
-    } else {
+    } else if (!_isQuest) {
+      // Entity burst fallback only on desktop (Quest skips if no GPU particles)
       const burst = document.createElement('a-entity');
       burst.setAttribute('position', `${pos.x} ${pos.y} ${pos.z}`);
       burst.setAttribute('particle-burst', `color: ${burstColor}; count: ${count}; size: 0.04; speed: 4; lifetime: 500`);

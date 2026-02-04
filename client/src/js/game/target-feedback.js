@@ -2,59 +2,80 @@
  * Target feedback — combo lost, wave events, damage numbers, screen flash, slow-mo, multiplier zones.
  * Extracted from target-system.js (V27 refactor, TASK-373).
  * Uses composition: receives parent TargetSystem reference via constructor.
+ * V30: Uses ObjectPool utility for GC-free pooling.
  */
 import audioManager from '../core/audio-manager.js';
+
+// V43 TASK-491: Cache Quest check to skip rapid animations
+const _isQuest = typeof VRCore !== 'undefined' && VRCore.isQuest && VRCore.isQuest();
 
 export default class TargetFeedback {
   constructor(ts) {
     /** @type {import('./target-system.js').default} */
     this._ts = ts;
-    // TASK-389: Damage number object pool
-    this._damageNumberPool = [];
-    this._damageNumberPoolSize = 15;
+    // V30 TASK-400: Use ObjectPool utility for damage numbers
+    this._damageNumberPool = null;
     this._poolInitialized = false;
   }
 
-  // TASK-389: Initialize damage number pool
+  // V30 TASK-400: Initialize damage number pool using ObjectPool utility
   _ensureDamagePool() {
     if (this._poolInitialized) return;
     this._poolInitialized = true;
 
     const scene = this._ts._container?.sceneEl || document.querySelector('a-scene');
-    if (!scene) return;
+    if (!scene || !window.ObjectPool) return;
 
-    for (let i = 0; i < this._damageNumberPoolSize; i++) {
-      const el = document.createElement('a-entity');
-      el.setAttribute('visible', 'false');
-      el.setAttribute('text', {
-        value: '',
-        align: 'center',
-        color: '#ffffff',
-        width: 4,
-        font: 'mozillavr',
-      });
-      el.setAttribute('look-at', '[camera]');
-      el.classList.add('damage-number-pooled');
-      el._pooled = true;
-      scene.appendChild(el);
-      this._damageNumberPool.push(el);
-    }
+    // Create pool using ObjectPool.create() with factory function
+    this._damageNumberPool = window.ObjectPool.create(
+      () => {
+        const el = document.createElement('a-entity');
+        el.setAttribute('text', {
+          value: '',
+          align: 'center',
+          color: '#ffffff',
+          width: 4,
+          font: 'mozillavr',
+        });
+        el.setAttribute('look-at', '[camera]');
+        el.classList.add('damage-number-pooled');
+        scene.appendChild(el);
+        return el;
+      },
+      15, // Initial pool size
+      {
+        onGet: (el) => {
+          el.setAttribute('visible', 'true');
+        },
+        onRelease: (el) => {
+          el.setAttribute('visible', 'false');
+          el.removeAttribute('animation__rise');
+          el.removeAttribute('animation__fade');
+          el.removeAttribute('animation__grow');
+        },
+        maxSize: 30
+      }
+    );
   }
 
-  // TASK-389: Get entity from pool
+  // V30 TASK-400: Get entity from ObjectPool
   _getDamageNumberFromPool() {
     this._ensureDamagePool();
-    // Find first available (invisible) entity
-    for (const el of this._damageNumberPool) {
-      if (!el.getAttribute('visible')) {
-        return el;
-      }
+    if (this._damageNumberPool) {
+      return this._damageNumberPool.get();
     }
-    // All in use, return null (will fallback to createElement)
     return null;
   }
 
+  // V30 TASK-400: Return entity to pool
+  _releaseDamageNumber(el) {
+    if (this._damageNumberPool && el) {
+      this._damageNumberPool.release(el);
+    }
+  }
+
   // TASK-367: Combo lost feedback — visual + audio when losing a high combo
+  // V30 TASK-402: Uses ScreenShake utility
   triggerComboLost(prevCombo, pos) {
     const ts = this._ts;
     const now = performance.now();
@@ -65,11 +86,15 @@ export default class TargetFeedback {
     document.dispatchEvent(new CustomEvent('hud-announce', {
       detail: { text: `COMBO LOST! ×${prevCombo}`, color: '#ff4444', duration: 1500 }
     }));
-    // Camera shake scaled by combo level
+    // V30 TASK-402: Camera shake using ScreenShake utility (fallback to event)
     const intensity = Math.min(prevCombo / 20, 1);
-    document.dispatchEvent(new CustomEvent('camera-shake', {
-      detail: { intensity: 0.02 + intensity * 0.04, duration: 300 }
-    }));
+    if (window.ScreenShake) {
+      window.ScreenShake.trigger(0.02 + intensity * 0.04, 300);
+    } else {
+      document.dispatchEvent(new CustomEvent('camera-shake', {
+        detail: { intensity: 0.02 + intensity * 0.04, duration: 300 }
+      }));
+    }
     // Red screen flash
     this.flashScreen('miss');
     // GPU particle burst at position (if available)
@@ -113,11 +138,14 @@ export default class TargetFeedback {
               z: -Math.cos(angle) * dist,
             };
             const el = ts._spawner.createEventTarget(pos, 0.15, '#ff69b4', 5, 1500);
-            el.setAttribute('animation__move', {
-              property: 'position',
-              to: `${pos.x + (Math.random() - 0.5) * 3} ${pos.y + (Math.random() - 0.5)} ${pos.z + (Math.random() - 0.5) * 3}`,
-              dur: 400 + Math.random() * 300, easing: 'easeInOutSine', loop: true, dir: 'alternate',
-            });
+            // V43 TASK-491: Skip move animation on Quest (400-700ms loop → static position)
+            if (!_isQuest) {
+              el.setAttribute('animation__move', {
+                property: 'position',
+                to: `${pos.x + (Math.random() - 0.5) * 3} ${pos.y + (Math.random() - 0.5)} ${pos.z + (Math.random() - 0.5) * 3}`,
+                dur: 400 + Math.random() * 300, easing: 'easeInOutSine', loop: true, dir: 'alternate',
+              });
+            }
           }
           break;
         }
@@ -210,13 +238,12 @@ export default class TargetFeedback {
 
     const text = points >= 0 ? `+${points}${suffix}` : `${points}`;
 
-    // TASK-389: Try to use pooled entity first
+    // V30 TASK-400: Use ObjectPool for damage numbers
     let el = this._getDamageNumberFromPool();
     if (el) {
-      // Reuse pooled entity
+      // Reuse pooled entity (ObjectPool.onGet already sets visible=true)
       el.object3D.position.set(pos.x, pos.y + 0.3, pos.z);
       el.setAttribute('text', { value: text, color: color, opacity: 1 });
-      el.setAttribute('visible', 'true');
       el.object3D.scale.set(0.5, 0.5, 0.5);
 
       // Animate rise
@@ -240,15 +267,10 @@ export default class TargetFeedback {
         easing: 'easeOutBack',
       });
 
-      // Return to pool after animation
-      setTimeout(() => {
-        el.setAttribute('visible', 'false');
-        el.removeAttribute('animation__rise');
-        el.removeAttribute('animation__fade');
-        el.removeAttribute('animation__grow');
-      }, 850);
+      // Return to pool after animation (ObjectPool.onRelease handles cleanup)
+      setTimeout(() => this._releaseDamageNumber(el), 850);
     } else {
-      // Fallback: create new element (pool exhausted)
+      // Fallback: create new element (pool exhausted or not available)
       el = document.createElement('a-entity');
       el.setAttribute('position', `${pos.x} ${pos.y + 0.3} ${pos.z}`);
       el.setAttribute('damage-number', `text: ${text}; color: ${color}`);
@@ -287,7 +309,10 @@ export default class TargetFeedback {
     ring.setAttribute('radius', '1.5');
     ring.setAttribute('radius-tubular', '0.03');
     ring.setAttribute('material', 'shader: flat; color: #ffd700; opacity: 0.3; transparent: true');
-    ring.setAttribute('animation__pulse', { property: 'material.opacity', from: 0.2, to: 0.5, dur: 800, loop: true, dir: 'alternate' });
+    // V43 TASK-492: Skip pulse on Quest (800ms loop), keep slow spin (4000ms is acceptable)
+    if (!_isQuest) {
+      ring.setAttribute('animation__pulse', { property: 'material.opacity', from: 0.2, to: 0.5, dur: 800, loop: true, dir: 'alternate' });
+    }
     ring.setAttribute('animation__spin', { property: 'rotation', to: '0 360 0', dur: 4000, loop: true, easing: 'linear' });
     el.appendChild(ring);
 

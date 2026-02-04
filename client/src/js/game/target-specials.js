@@ -6,6 +6,9 @@
 import audioManager from '../core/audio-manager.js';
 import { getSettings, remapColor } from './settings-util.js';
 
+// V43 TASK-489: Cache Quest check to skip rapid animations
+const _isQuest = typeof VRCore !== 'undefined' && VRCore.isQuest && VRCore.isQuest();
+
 // TASK-301: Color-match colors
 const COLOR_MATCH_COLORS = [
   { id: 'red', color: '#ff4444', emoji: '🔴', shape: 'a-icosahedron' },
@@ -17,6 +20,15 @@ export default class TargetSpecials {
   constructor(ts) {
     /** @type {import('./target-system.js').default} */
     this._ts = ts;
+
+    // V37 TASK-471: Pre-allocate vectors for punch detection (GC-free)
+    this._punchHandPos = new THREE.Vector3();
+    this._punchTargetPos = new THREE.Vector3();
+    this._punchPrevPos = { right: new THREE.Vector3(), left: new THREE.Vector3() };
+
+    // V37 TASK-471: Cache hand element refs (avoid getElementById every 30ms)
+    this._leftHandEl = null;
+    this._rightHandEl = null;
   }
 
   // ===================== Timers =====================
@@ -24,6 +36,10 @@ export default class TargetSpecials {
   /** Called from TargetSystem.start() to init all special target timers */
   startTimers() {
     const ts = this._ts;
+
+    // V37 TASK-471: Cache hand elements once (avoid 533+ getElementById/sec)
+    this._leftHandEl = document.getElementById('left-hand');
+    this._rightHandEl = document.getElementById('right-hand');
 
     // Punch target detection tick (TASK-256)
     ts._lastControllerPos = { right: null, left: null };
@@ -99,27 +115,33 @@ export default class TargetSpecials {
       property: 'scale', from: '0 0 0', to: '1.5 1.5 1.5',
       dur: 300, easing: 'easeOutElastic',
     });
-    el.setAttribute('animation__pulse', {
-      property: 'material.emissiveIntensity', from: 0.5, to: 1.2,
-      dur: 400, loop: true, dir: 'alternate', easing: 'easeInOutSine',
-    });
+    // V43 TASK-489: Skip rapid pulse animation on Quest (400ms loop → static)
+    if (!_isQuest) {
+      el.setAttribute('animation__pulse', {
+        property: 'material.emissiveIntensity', from: 0.5, to: 1.2,
+        dur: 400, loop: true, dir: 'alternate', easing: 'easeInOutSine',
+      });
+    }
 
-    // Orange energy ring
-    const ring = document.createElement('a-torus');
-    ring.setAttribute('radius', '0.55');
-    ring.setAttribute('radius-tubular', '0.02');
-    ring.setAttribute('material', 'shader: flat; color: #ff8800; opacity: 0.5; transparent: true');
-    ring.setAttribute('animation__spin', { property: 'rotation', to: '0 360 0', dur: 600, loop: true, easing: 'linear' });
-    el.appendChild(ring);
+    // V43 TASK-489: Skip spinning rings on Quest (600ms + 800ms loops → omit entirely)
+    if (!_isQuest) {
+      // Orange energy ring
+      const ring = document.createElement('a-torus');
+      ring.setAttribute('radius', '0.55');
+      ring.setAttribute('radius-tubular', '0.02');
+      ring.setAttribute('material', 'shader: flat; color: #ff8800; opacity: 0.5; transparent: true');
+      ring.setAttribute('animation__spin', { property: 'rotation', to: '0 360 0', dur: 600, loop: true, easing: 'linear' });
+      el.appendChild(ring);
 
-    // Second ring perpendicular
-    const ring2 = document.createElement('a-torus');
-    ring2.setAttribute('radius', '0.5');
-    ring2.setAttribute('radius-tubular', '0.015');
-    ring2.setAttribute('rotation', '90 0 0');
-    ring2.setAttribute('material', 'shader: flat; color: #ffaa44; opacity: 0.3; transparent: true');
-    ring2.setAttribute('animation__spin', { property: 'rotation', from: '90 0 0', to: '90 360 0', dur: 800, loop: true, easing: 'linear' });
-    el.appendChild(ring2);
+      // Second ring perpendicular
+      const ring2 = document.createElement('a-torus');
+      ring2.setAttribute('radius', '0.5');
+      ring2.setAttribute('radius-tubular', '0.015');
+      ring2.setAttribute('rotation', '90 0 0');
+      ring2.setAttribute('material', 'shader: flat; color: #ffaa44; opacity: 0.3; transparent: true');
+      ring2.setAttribute('animation__spin', { property: 'rotation', from: '90 0 0', to: '90 360 0', dur: 800, loop: true, easing: 'linear' });
+      el.appendChild(ring2);
+    }
 
     el.setAttribute('target-hit', 'hp: 1; targetType: standard');
     el._targetType = 'standard';
@@ -150,33 +172,40 @@ export default class TargetSpecials {
     if (!ts._running) return;
     const dt = 0.03;
 
+    // V37 TASK-471: GC-free punch detection using cached refs and pre-allocated vectors
     // Track both controllers
     ['right', 'left'].forEach(hand => {
-      const handEl = document.getElementById(`${hand}-hand`);
+      // Use cached hand element (no getElementById per tick)
+      const handEl = hand === 'left' ? this._leftHandEl : this._rightHandEl;
       if (!handEl?.object3D) return;
 
-      const pos = new THREE.Vector3();
-      handEl.object3D.getWorldPosition(pos);
+      // Reuse pre-allocated vector
+      handEl.object3D.getWorldPosition(this._punchHandPos);
       const prev = ts._lastControllerPos[hand];
 
       if (prev) {
-        const velocity = pos.distanceTo(prev) / dt;
+        const velocity = this._punchHandPos.distanceTo(prev) / dt;
         ts._controllerVelocity[hand] = velocity;
 
         // Check for punch hit on melee targets
         if (velocity > 2.0) {
           ts._targets.forEach(el => {
             if (!el._isMelee || !el.parentNode || !el.object3D) return;
-            const tPos = el.object3D.getWorldPosition(new THREE.Vector3());
-            if (pos.distanceTo(tPos) < 0.5) {
+            // Reuse pre-allocated target position vector
+            el.object3D.getWorldPosition(this._punchTargetPos);
+            if (this._punchHandPos.distanceTo(this._punchTargetPos) < 0.5) {
               // Punch hit!
-              this._onPunchHit(el, pos, hand);
+              this._onPunchHit(el, this._punchHandPos, hand);
             }
           });
         }
       }
 
-      ts._lastControllerPos[hand] = pos.clone();
+      // Store previous position (use .copy() instead of .clone())
+      if (!ts._lastControllerPos[hand]) {
+        ts._lastControllerPos[hand] = new THREE.Vector3();
+      }
+      ts._lastControllerPos[hand].copy(this._punchHandPos);
     });
   }
 
@@ -186,9 +215,9 @@ export default class TargetSpecials {
     audioManager.playPunchImpact(pos);
     window.__hapticManager?.pulse(0.9, 120);
 
-    // Shatter particles
+    // V39 TASK-482: Skip punch impact particles on Quest (8 DOM icosahedrons → 0)
     const scene = ts._container.sceneEl || ts._container.closest('a-scene');
-    if (scene) {
+    if (scene && !(typeof VRCore !== 'undefined' && VRCore.isQuest && VRCore.isQuest())) {
       for (let i = 0; i < 8; i++) {
         const s = document.createElement('a-icosahedron');
         s.setAttribute('radius', '0.02');
@@ -296,16 +325,18 @@ export default class TargetSpecials {
       el.setAttribute('target-hit', 'hp: 1; targetType: standard');
       el.setAttribute('animation__spawn', { property: 'scale', from: '0 0 0', to: '1 1 1', dur: 300, easing: 'easeOutElastic' });
 
-      // Pulsing glow ring
-      const ring = document.createElement('a-torus');
-      ring.setAttribute('radius', '0.4');
-      ring.setAttribute('radius-tubular', '0.015');
-      ring.setAttribute('material', `shader: flat; color: ${color}; opacity: 0.4; transparent: true`);
-      ring.setAttribute('animation__pulse', {
-        property: 'material.opacity', from: 0.2, to: 0.6,
-        dur: 500, loop: true, dir: 'alternate', easing: 'easeInOutSine',
-      });
-      el.appendChild(ring);
+      // V43 TASK-490: Skip pulsing ring on Quest (500ms loop → omit entirely)
+      if (!_isQuest) {
+        const ring = document.createElement('a-torus');
+        ring.setAttribute('radius', '0.4');
+        ring.setAttribute('radius-tubular', '0.015');
+        ring.setAttribute('material', `shader: flat; color: ${color}; opacity: 0.4; transparent: true`);
+        ring.setAttribute('animation__pulse', {
+          property: 'material.opacity', from: 0.2, to: 0.6,
+          dur: 500, loop: true, dir: 'alternate', easing: 'easeInOutSine',
+        });
+        el.appendChild(ring);
+      }
 
       el._targetType = 'standard';
       el._targetPoints = 30;

@@ -538,6 +538,57 @@ AFRAME.registerComponent('bloom-effect', {
     this._blurVMat.uniforms.resolution.value.copy(halfRes);
   },
 
+  // V36 TASK-469: Pre-warm bloom shaders on scene load to eliminate first-use stutter
+  prewarmShaders() {
+    if (this._targetsInitialized) {
+      console.log('[bloom-effect] Shaders already warmed');
+      return;
+    }
+
+    const renderer = this.el.renderer;
+    const scene = this.el.object3D;
+    const camera = this.el.camera;
+    if (!renderer || !scene || !camera) {
+      console.warn('[bloom-effect] Cannot prewarm: renderer/scene/camera not ready');
+      return;
+    }
+
+    console.log('[bloom-effect] Pre-warming shaders...');
+
+    // Trigger lazy initialization
+    this._ensureTargets(renderer);
+
+    // Force shader compilation with hidden render pass
+    if (this._ready && this._quadScene && this._quadMesh) {
+      // Render each material once to compile shaders
+      const oldAutoUpdate = scene.matrixAutoUpdate;
+      scene.matrixAutoUpdate = false;
+
+      // Bright pass
+      this._quadMesh.material = this._brightMat;
+      renderer.setRenderTarget(this._rtBright);
+      renderer.render(this._quadScene, this._quadCamera);
+
+      // Blur H pass
+      this._quadMesh.material = this._blurHMat;
+      renderer.setRenderTarget(this._rtBlurH);
+      renderer.render(this._quadScene, this._quadCamera);
+
+      // Blur V pass
+      this._quadMesh.material = this._blurVMat;
+      renderer.setRenderTarget(this._rtBlurV);
+      renderer.render(this._quadScene, this._quadCamera);
+
+      // Composite pass
+      this._quadMesh.material = this._compositeMat;
+      renderer.setRenderTarget(null);
+      renderer.render(this._quadScene, this._quadCamera);
+
+      scene.matrixAutoUpdate = oldAutoUpdate;
+      console.log('[bloom-effect] Shader compilation complete');
+    }
+  },
+
   remove() {
     window.removeEventListener('resize', this._onResize);
     document.removeEventListener('player-damage', this._onDamage);

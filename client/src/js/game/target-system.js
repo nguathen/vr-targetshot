@@ -596,6 +596,12 @@ class TargetSystem {
 
   _removeTarget(el, expired = false) {
     this._targets.delete(el);
+
+    // V36 TASK-465: Remove from target cache for GC-free target-indicator.js
+    if (window.__targetCache) {
+      window.__targetCache.delete(el);
+    }
+
     if (el._expireTimeout) clearTimeout(el._expireTimeout);
     if (el._teleportInterval) clearInterval(el._teleportInterval);
     if (el._bombTickTimer) clearInterval(el._bombTickTimer);

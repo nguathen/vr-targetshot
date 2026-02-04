@@ -6,10 +6,39 @@
 import scoreManager from './score-manager.js';
 import audioManager from '../core/audio-manager.js';
 
+// V41 TASK-486: Cache Quest check to skip rapid animations
+const _isQuest = typeof VRCore !== 'undefined' && VRCore.isQuest && VRCore.isQuest();
+
 export default class TargetHazards {
   constructor(ts) {
     /** @type {import('./target-system.js').default} */
     this._ts = ts;
+
+    // V37 TASK-472: Pre-allocate vectors for projectile collision (GC-free)
+    this._projCamPos = new THREE.Vector3();
+    this._projShieldPos = new THREE.Vector3();
+
+    // V37 TASK-473: Pre-allocate vectors for scareball collision (GC-free)
+    this._scareCamPos = new THREE.Vector3();
+    this._scareToCam = new THREE.Vector3();
+
+    // V37 TASK-474: Pre-allocate vectors for charger collision (GC-free)
+    this._chargerCamPos = new THREE.Vector3();
+    this._chargerDir = new THREE.Vector3();
+    this._chargerTargetPos = new THREE.Vector3();
+
+    // V37 TASK-475: Pre-allocate vectors for laser sweep collision (GC-free)
+    this._laserCamPos = new THREE.Vector3();
+    this._laserDir = new THREE.Vector3();
+
+    // V46 TASK-501: Pre-allocate vectors for scare ball launch (GC-free)
+    this._launchCamPos = new THREE.Vector3();
+    this._launchDir = new THREE.Vector3();
+
+    // V37 TASK-472-475: Cache element refs (avoid getElementById every 30-50ms)
+    this._cameraEl = null;
+    this._leftHandEl = null;
+    this._playerRigEl = null;
   }
 
   // ===================== Timers =====================
@@ -17,6 +46,11 @@ export default class TargetHazards {
   /** Called from TargetSystem.start() to init all hazard timers */
   startTimers() {
     const ts = this._ts;
+
+    // V37 TASK-472-475: Cache element refs once (avoid 850+ getElementById/sec)
+    this._cameraEl = document.getElementById('camera');
+    this._leftHandEl = document.getElementById('left-hand');
+    this._playerRigEl = document.getElementById('player-rig');
 
     // Projectile collision tick (TASK-250)
     ts._projectileTick = setInterval(() => this._updateProjectiles(), 50);
@@ -35,7 +69,8 @@ export default class TargetHazards {
     // Scare ball timer (TASK-255)
     ts._lastScareBallTime = Date.now() + 10000; // grace period at start
     ts._scareBallTimer = setInterval(() => this._tryLaunchScareBall(), 1000);
-    ts._scareBallTick = setInterval(() => this._updateScareBalls(), 30);
+    // V46 TASK-502: Increase tick interval 30ms→50ms (40% fewer updates)
+    ts._scareBallTick = setInterval(() => this._updateScareBalls(), 50);
 
     // Laser sweep timer (TASK-258)
     ts._lastLaserSweepTime = Date.now() + 15000; // grace period
@@ -144,15 +179,21 @@ export default class TargetHazards {
     el.setAttribute('radius', '0.15');
     el.setAttribute('position', `${origin.x} ${origin.y} ${origin.z}`);
     el.setAttribute('material', 'shader: flat; color: #ff2222; emissive: #ff0000; emissiveIntensity: 2; opacity: 0.9; transparent: true');
-    el.setAttribute('animation__pulse', { property: 'material.emissiveIntensity', from: 1.5, to: 3, dur: 200, loop: true, dir: 'alternate' });
+    // V43 TASK-488: Skip rapid pulse animation on Quest (200ms loop → static)
+    if (!_isQuest) {
+      el.setAttribute('animation__pulse', { property: 'material.emissiveIntensity', from: 1.5, to: 3, dur: 200, loop: true, dir: 'alternate' });
+    }
     el.setAttribute('shadow', 'cast: false; receive: false');
 
-    const ring = document.createElement('a-ring');
-    ring.setAttribute('radius-inner', '0.02');
-    ring.setAttribute('radius-outer', '0.06');
-    ring.setAttribute('material', 'shader: flat; color: #ff4400; opacity: 0.4; transparent: true');
-    ring.setAttribute('animation__spin', { property: 'rotation', to: '0 0 360', dur: 300, loop: true, easing: 'linear' });
-    el.appendChild(ring);
+    // V43 TASK-488: Skip spinning ring on Quest (300ms loop → omit entirely)
+    if (!_isQuest) {
+      const ring = document.createElement('a-ring');
+      ring.setAttribute('radius-inner', '0.02');
+      ring.setAttribute('radius-outer', '0.06');
+      ring.setAttribute('material', 'shader: flat; color: #ff4400; opacity: 0.4; transparent: true');
+      ring.setAttribute('animation__spin', { property: 'rotation', to: '0 0 360', dur: 300, loop: true, easing: 'linear' });
+      el.appendChild(ring);
+    }
 
     el.setAttribute('gpu-particles', {
       preset: 'trail', count: 30, color: '#ff4400', color2: '#ff0000',
@@ -175,15 +216,16 @@ export default class TargetHazards {
   _updateProjectiles() {
     const ts = this._ts;
     if (!ts._running) return;
-    const cam = document.getElementById('camera');
-    if (!cam) return;
-    const camPos = new THREE.Vector3();
-    cam.object3D.getWorldPosition(camPos);
 
-    const leftHand = document.getElementById('left-hand');
-    const shieldActive = leftHand?._shieldActive || false;
-    const shieldPos = new THREE.Vector3();
-    if (leftHand?.object3D) leftHand.object3D.getWorldPosition(shieldPos);
+    // V37 TASK-472: Use cached camera element (no getElementById per tick)
+    if (!this._cameraEl) return;
+    this._cameraEl.object3D.getWorldPosition(this._projCamPos);
+
+    // V37 TASK-472: Use cached hand element and pre-allocated vector
+    const shieldActive = this._leftHandEl?._shieldActive || false;
+    if (this._leftHandEl?.object3D) {
+      this._leftHandEl.object3D.getWorldPosition(this._projShieldPos);
+    }
 
     const dt = 0.05;
     const toRemove = [];
@@ -194,15 +236,16 @@ export default class TargetHazards {
       p.pos.z += p.dir.z * p.speed * dt;
       p.el.setAttribute('position', `${p.pos.x} ${p.pos.y} ${p.pos.z}`);
 
-      if (shieldActive && p.pos.distanceTo(shieldPos) < 0.6) {
+      // V37 TASK-472: Use pre-allocated vectors
+      if (shieldActive && p.pos.distanceTo(this._projShieldPos) < 0.6) {
         toRemove.push(p);
         this._onShieldBlock(p);
         return;
       }
 
-      if (p.pos.distanceTo(camPos) < 0.5) {
+      if (p.pos.distanceTo(this._projCamPos) < 0.5) {
         toRemove.push(p);
-        if (p.playerPosAtLaunch && camPos.distanceTo(p.playerPosAtLaunch) > 0.4) {
+        if (p.playerPosAtLaunch && this._projCamPos.distanceTo(p.playerPosAtLaunch) > 0.4) {
           this._onProjectileDodged(p);
         } else {
           this._onProjectileHit(p);
@@ -212,7 +255,7 @@ export default class TargetHazards {
 
       if (Date.now() - p.spawnTime > 5000) {
         toRemove.push(p);
-        if (p.playerPosAtLaunch && camPos.distanceTo(p.playerPosAtLaunch) > 0.4) {
+        if (p.playerPosAtLaunch && this._projCamPos.distanceTo(p.playerPosAtLaunch) > 0.4) {
           this._onProjectileDodged(p);
         }
       }
@@ -384,22 +427,30 @@ export default class TargetHazards {
     el.setAttribute('material', 'color: #ff4400; metalness: 0.8; roughness: 0.2; emissive: #ff2200; emissiveIntensity: 0.8');
     el.setAttribute('position', `${x} ${y} ${z}`);
     el.setAttribute('shadow', 'cast: true; receive: false');
-    el.setAttribute('animation__pulse', {
-      property: 'material.emissiveIntensity', from: 0.5, to: 1.2,
-      dur: 300, loop: true, dir: 'alternate', easing: 'easeInOutSine',
-    });
+
+    // V41 TASK-486: Skip rapid pulse animation on Quest (300ms loop → static)
+    if (!_isQuest) {
+      el.setAttribute('animation__pulse', {
+        property: 'material.emissiveIntensity', from: 0.5, to: 1.2,
+        dur: 300, loop: true, dir: 'alternate', easing: 'easeInOutSine',
+      });
+    }
+
     el.setAttribute('animation__spawn', {
       property: 'scale', from: '0 0 0', to: '1 1 1',
       dur: 300, easing: 'easeOutElastic',
     });
 
-    const ring = document.createElement('a-torus');
-    ring.setAttribute('radius', '0.45');
-    ring.setAttribute('radius-tubular', '0.02');
-    ring.setAttribute('material', 'shader: flat; color: #ff6600; opacity: 0.5');
-    ring.setAttribute('rotation', '90 0 0');
-    ring.setAttribute('animation__spin', { property: 'rotation', from: '90 0 0', to: '90 360 0', dur: 500, loop: true, easing: 'linear' });
-    el.appendChild(ring);
+    // V41 TASK-486: Skip spinning ring on Quest (500ms loop → omit entirely)
+    if (!_isQuest) {
+      const ring = document.createElement('a-torus');
+      ring.setAttribute('radius', '0.45');
+      ring.setAttribute('radius-tubular', '0.02');
+      ring.setAttribute('material', 'shader: flat; color: #ff6600; opacity: 0.5');
+      ring.setAttribute('rotation', '90 0 0');
+      ring.setAttribute('animation__spin', { property: 'rotation', from: '90 0 0', to: '90 360 0', dur: 500, loop: true, easing: 'linear' });
+      el.appendChild(ring);
+    }
 
     el.setAttribute('target-hit', 'hp: 1; targetType: charger');
     el._targetType = 'charger';
@@ -432,11 +483,11 @@ export default class TargetHazards {
   _updateChargers() {
     const ts = this._ts;
     if (!ts._running) return;
-    const cam = document.getElementById('camera');
-    if (!cam) return;
-    const camPos = new THREE.Vector3();
-    cam.object3D.getWorldPosition(camPos);
-    camPos.y = 0.5;
+
+    // V37 TASK-474: Use cached camera element (no getElementById per tick)
+    if (!this._cameraEl) return;
+    this._cameraEl.object3D.getWorldPosition(this._chargerCamPos);
+    this._chargerCamPos.y = 0.5;
 
     const dt = 0.05;
     const toRemove = [];
@@ -444,20 +495,22 @@ export default class TargetHazards {
     ts._chargers.forEach(c => {
       if (!c.el.parentNode) { toRemove.push(c); return; }
 
-      const dir = new THREE.Vector3().subVectors(camPos, c.pos).normalize();
-      c.pos.x += dir.x * c.speed * dt;
-      c.pos.z += dir.z * c.speed * dt;
+      // V37 TASK-474: Use pre-allocated direction vector (no allocation)
+      this._chargerDir.subVectors(this._chargerCamPos, c.pos).normalize();
+      c.pos.x += this._chargerDir.x * c.speed * dt;
+      c.pos.z += this._chargerDir.z * c.speed * dt;
       c.el.setAttribute('position', `${c.pos.x} ${c.pos.y} ${c.pos.z}`);
 
       if (c.hum) {
-        const dist = c.pos.distanceTo(camPos);
+        const dist = c.pos.distanceTo(this._chargerCamPos);
         const vol = Math.min(0.15, 0.02 + (1 - dist / 14) * 0.13);
         c.hum.update({ x: c.pos.x, y: c.pos.y, z: c.pos.z }, vol);
       }
 
-      const camWorldPos = new THREE.Vector3();
-      cam.object3D.getWorldPosition(camWorldPos);
-      if (c.pos.distanceTo(new THREE.Vector3(camWorldPos.x, 0.5, camWorldPos.z)) < 1.0) {
+      // V37 TASK-474: DUPLICATE getWorldPosition removed - reuse _chargerCamPos from above
+      // Use pre-allocated target position vector
+      this._chargerTargetPos.set(this._chargerCamPos.x, 0.5, this._chargerCamPos.z);
+      if (c.pos.distanceTo(this._chargerTargetPos) < 1.0) {
         toRemove.push(c);
         this._onChargerContact(c);
       }
@@ -490,7 +543,9 @@ export default class TargetHazards {
     ts._onPlayerDamage?.('charger');
 
     const scene = ts._container.sceneEl || ts._container.closest('a-scene');
-    if (scene) {
+    // V39 TASK-482: Skip charger explosion particles on Quest (7 DOM + timers → 0)
+    // V42: Use cached _isQuest for consistency
+    if (scene && !_isQuest) {
       for (let i = 0; i < 6; i++) {
         const s = document.createElement('a-sphere');
         s.setAttribute('radius', '0.02');
@@ -586,19 +641,29 @@ export default class TargetHazards {
     setTimeout(() => {
       if (!ts._running || !el.parentNode) return;
       zone.active = true;
-      fill.setAttribute('animation__activate', {
-        property: 'material.opacity', from: 0, to: 0.15,
-        dur: 300, easing: 'easeOutQuad',
-      });
-      fill.setAttribute('animation__pulse', {
-        property: 'material.opacity', from: 0.08, to: 0.2,
-        dur: 800, loop: true, dir: 'alternate', easing: 'easeInOutSine',
-      });
+      // V42 TASK-487: Skip pulse animation on Quest (800ms loop → static)
+      if (_isQuest) {
+        // Static opacity on Quest - no animation overhead
+        fill.setAttribute('material', 'opacity', 0.15);
+      } else {
+        fill.setAttribute('animation__activate', {
+          property: 'material.opacity', from: 0, to: 0.15,
+          dur: 300, easing: 'easeOutQuad',
+        });
+        fill.setAttribute('animation__pulse', {
+          property: 'material.opacity', from: 0.08, to: 0.2,
+          dur: 800, loop: true, dir: 'alternate', easing: 'easeInOutSine',
+        });
+      }
       this._spawnDangerEmbers(scene, x, z, radius, zone);
     }, 2000);
   }
 
   _spawnDangerEmbers(scene, cx, cz, radius, zone) {
+    // V38 TASK-476: Skip ember particles on Quest (25 allocs/sec → 0)
+    // V42: Use cached _isQuest for consistency
+    if (_isQuest) return;
+
     const ts = this._ts;
     const emberInterval = setInterval(() => {
       if (!ts._running || !zone.active || !zone.el.parentNode) {
@@ -695,8 +760,9 @@ export default class TargetHazards {
     const cam = document.getElementById('camera');
     if (!cam) return;
 
-    const camPos = new THREE.Vector3();
-    cam.object3D.getWorldPosition(camPos);
+    // V46 TASK-501: Reuse pre-allocated vector instead of `new THREE.Vector3()`
+    cam.object3D.getWorldPosition(this._launchCamPos);
+    const camPos = this._launchCamPos;
 
     const edge = Math.floor(Math.random() * 4);
     let sx, sz;
@@ -708,7 +774,8 @@ export default class TargetHazards {
     }
     const sy = camPos.y + 0.1;
 
-    const dir = new THREE.Vector3(camPos.x - sx, camPos.y + 0.1 - sy, camPos.z - sz).normalize();
+    // V46 TASK-501: Reuse pre-allocated vector instead of `new THREE.Vector3(...)`
+    const dir = this._launchDir.set(camPos.x - sx, camPos.y + 0.1 - sy, camPos.z - sz).normalize();
     const speed = 8 + Math.random() * 2;
     const radius = 0.15 + Math.random() * 0.1;
 
@@ -726,11 +793,16 @@ export default class TargetHazards {
       el.setAttribute('material', `shader: flat; color: ${color}; opacity: 0.9; transparent: true`);
       el.setAttribute('shadow', 'cast: false; receive: false');
 
-      const light = document.createElement('a-entity');
-      light.setAttribute('light', `type: point; color: ${color}; intensity: 1.5; distance: 3; decay: 2`);
-      el.appendChild(light);
+      // V44 TASK-494: Skip point light on Quest (exceeds 2-light budget → FPS drop)
+      if (!_isQuest) {
+        const light = document.createElement('a-entity');
+        light.setAttribute('light', `type: point; color: ${color}; intensity: 1.5; distance: 3; decay: 2`);
+        el.appendChild(light);
+      }
 
-      for (let i = 1; i <= 3; i++) {
+      // V46 TASK-503: Skip tail spheres entirely on Quest (0 draw calls instead of 1)
+      const tailCount = _isQuest ? 0 : 3;
+      for (let i = 1; i <= tailCount; i++) {
         const tail = document.createElement('a-sphere');
         tail.setAttribute('radius', String(radius * (1 - i * 0.25)));
         tail.setAttribute('material', `shader: flat; color: ${color}; opacity: ${0.5 - i * 0.12}; transparent: true`);
@@ -743,7 +815,7 @@ export default class TargetHazards {
       const ball = {
         el,
         pos: new THREE.Vector3(sx, sy, sz),
-        dir,
+        dir: dir.clone(),  // Clone to avoid sharing vector reference (ISSUE-029)
         speed,
         spawnTime: Date.now(),
         nearMissTriggered: false,
@@ -755,21 +827,24 @@ export default class TargetHazards {
   _updateScareBalls() {
     const ts = this._ts;
     if (!ts._running) return;
-    const cam = document.getElementById('camera');
-    if (!cam) return;
-    const camPos = new THREE.Vector3();
-    cam.object3D.getWorldPosition(camPos);
 
-    const dt = 0.03;
+    // V37 TASK-473: Use cached camera element (no getElementById per tick)
+    if (!this._cameraEl) return;
+    this._cameraEl.object3D.getWorldPosition(this._scareCamPos);
+
+    // V46 TASK-502: Increase dt 0.03→0.05 to match 50ms tick interval
+    const dt = 0.05;
     const toRemove = [];
 
     ts._scareBalls.forEach(b => {
       b.pos.x += b.dir.x * b.speed * dt;
       b.pos.y += b.dir.y * b.speed * dt;
       b.pos.z += b.dir.z * b.speed * dt;
-      b.el.setAttribute('position', `${b.pos.x} ${b.pos.y} ${b.pos.z}`);
+      // V46 TASK-500: Use object3D.position.set() instead of setAttribute (avoids string parsing)
+      b.el.object3D.position.set(b.pos.x, b.pos.y, b.pos.z);
 
-      const dist = b.pos.distanceTo(camPos);
+      // V37 TASK-473: Use pre-allocated vector
+      const dist = b.pos.distanceTo(this._scareCamPos);
 
       if (dist < 0.3) {
         toRemove.push(b);
@@ -778,8 +853,9 @@ export default class TargetHazards {
       }
 
       if (!b.nearMissTriggered && dist < 0.5) {
-        const toCam = new THREE.Vector3().subVectors(camPos, b.pos);
-        if (toCam.dot(b.dir) < 0) {
+        // V37 TASK-473: Use pre-allocated temp vector (no allocation)
+        this._scareToCam.subVectors(this._scareCamPos, b.pos);
+        if (this._scareToCam.dot(b.dir) < 0) {
           b.nearMissTriggered = true;
           this._onScareBallDodge(b);
         }
@@ -909,10 +985,10 @@ export default class TargetHazards {
   _updateLaserSweeps() {
     const ts = this._ts;
     if (!ts._running) return;
-    const cam = document.getElementById('camera');
-    if (!cam) return;
-    const camPos = new THREE.Vector3();
-    cam.object3D.getWorldPosition(camPos);
+
+    // V37 TASK-475: Use cached camera element (no getElementById per tick)
+    if (!this._cameraEl) return;
+    this._cameraEl.object3D.getWorldPosition(this._laserCamPos);
 
     ts._laserSweeps.forEach(sweep => {
       if (sweep.hit || sweep.dodged) return;
@@ -922,27 +998,27 @@ export default class TargetHazards {
       if (progress > 1) return;
 
       const laserX = sweep.startX + (sweep.endX - sweep.startX) * progress;
-      if (Math.abs(laserX - camPos.x) > 1.5) return;
+      if (Math.abs(laserX - this._laserCamPos.x) > 1.5) return;
 
       if (sweep.isHeadHeight) {
-        if (camPos.y < sweep.laserY - 0.3) {
+        if (this._laserCamPos.y < sweep.laserY - 0.3) {
           sweep.dodged = true;
           this._onLaserDodge(sweep);
-        } else if (Math.abs(camPos.y - sweep.laserY) < 0.3) {
+        } else if (Math.abs(this._laserCamPos.y - sweep.laserY) < 0.3) {
           sweep.hit = true;
           this._onLaserHit(sweep);
         }
       } else {
-        const rig = document.getElementById('player-rig');
-        const rigX = rig ? rig.object3D.position.x : 0;
-        const lean = Math.abs(camPos.x - rigX);
+        // V37 TASK-475: Use cached player rig element
+        const rigX = this._playerRigEl ? this._playerRigEl.object3D.position.x : 0;
+        const lean = Math.abs(this._laserCamPos.x - rigX);
         if (lean > 0.4) {
           sweep.dodged = true;
           this._onLaserDodge(sweep);
-        } else if (camPos.y < sweep.laserY - 0.3) {
+        } else if (this._laserCamPos.y < sweep.laserY - 0.3) {
           sweep.dodged = true;
           this._onLaserDodge(sweep);
-        } else if (Math.abs(camPos.y - sweep.laserY) < 0.3 && lean < 0.3) {
+        } else if (Math.abs(this._laserCamPos.y - sweep.laserY) < 0.3 && lean < 0.3) {
           sweep.hit = true;
           this._onLaserHit(sweep);
         }

@@ -47,6 +47,12 @@ AFRAME.registerComponent('env-reflections', {
     const renderer = this.el.renderer;
     if (!renderer) return;
 
+    // TASK-453: Skip env-reflections on Quest (too expensive for mobile GPU)
+    if (typeof VRCore !== 'undefined' && VRCore.isQuest && VRCore.isQuest()) {
+      console.log('[env-reflections] Skipped on Quest for performance');
+      return;
+    }
+
     // TASK-381: Only create PMREMGenerator here — defer shader compilation
     this._pmrem = new THREE.PMREMGenerator(renderer);
     // DON'T call compileCubemapShader() here — let it compile lazily on first use

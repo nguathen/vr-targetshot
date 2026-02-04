@@ -809,6 +809,99 @@ target-system.js (3040 lines, 65+ methods) và audio-manager.js (1616 lines, 80+
 - Negative: Mixin pattern mất IDE autocomplete cho sub-module methods (acceptable tradeoff)
 - Risk: Circular dependency nếu sub-modules reference nhau → mitigated: sub-modules chỉ reference parent facade qua constructor injection
 
+### ADR-019: V30 Framework Integration — Adopt Shared VR Components
+
+**Status:** Proposed
+**Date:** 2026-02-04
+
+**Context:**
+Codebase `/codebases/game-vr-codebase/framework/` chứa 40 reusable VR modules đã được thiết kế tốt với focus vào performance (GC-free, object pooling) và modularity. Current game có nhiều systems tương đương nhưng implementation khác nhau, đôi khi less optimized. ISSUE-020 (Meta Quest VRC rejection) yêu cầu stable 72 FPS — framework utilities được thiết kế chính xác cho mục tiêu này.
+
+**Key Framework Components to Adopt:**
+
+| Framework Module | Current Game Equivalent | Benefit |
+|------------------|------------------------|---------|
+| `utils/object-pool.js` (292 lines) | Ad-hoc pooling in various files | GC-free, prewarm, stats, callbacks |
+| `utils/haptics.js` (231 lines) | `haptic-manager.js` (complex) | Cleaner API: `Haptics.light/medium/heavy()` |
+| `vfx/screen-shake.js` (130 lines) | `camera-effects.js` (mixed) | Standalone A-Frame component |
+| `vfx/hitstop.js` (403 lines) | None | NEW: Impact freeze effect |
+| `interaction/grabbable.js` (451 lines) | None | NEW: VR object grab system |
+| `utils/state-machine.js` | `game-manager.js` | Generic FSM utility |
+
+**Decision:**
+Adopt 6 framework utilities into current game:
+
+**Tier 1 — Critical for Performance (ISSUE-020):**
+1. **ObjectPool** — Replace ad-hoc pooling with centralized `window.ObjectPool`. Pre-warm pools for: targets, damage numbers, particles, decorations
+2. **Haptics** — Replace `haptic-manager.js` with simpler `Haptics` global. Keep existing presets mapping
+
+**Tier 2 — Code Quality & New Features:**
+3. **Screen Shake** — Extract from `camera-effects.js` to standalone component `screen-shake`
+4. **Hitstop** — NEW feature: add impact freeze on boss kills, heavy hits, bomb explosions
+5. **State Machine** — Optional: migrate `GameManager` to use generic FSM
+
+**Tier 3 — Future Features:**
+6. **Grabbable** — Prepare infrastructure for future grabbable weapon mechanics
+
+**Consequences:**
+- Positive: Centralized object pooling → measurable GC reduction
+- Positive: Simpler haptic API → easier to maintain
+- Positive: Hitstop adds game feel without new gameplay
+- Positive: Shared codebase → fixes benefit both projects
+- Negative: Migration effort ~3-5 hours
+- Negative: Two haptic systems during transition
+- Risk: ObjectPool behavior differences → mitigated: comprehensive testing
+
+**Migration Strategy:**
+1. Copy framework files to `client/src/js/vendor/` (vendored, not npm)
+2. Add to HTML as `<script>` before modules (maintain global availability)
+3. Migrate callers incrementally
+4. Remove old implementations after verification
+
+### ADR-020: V31 Comprehensive Framework Adoption
+
+**Status:** Proposed
+**Date:** 2026-02-04
+
+**Context:**
+V30 integrated 7/38 framework modules (ObjectPool, Haptics, ScreenShake, Hitstop, Grabbable, StateMachine, PerfMonitor). Reference codebase `/codebases/game-vr-codebase/` contains:
+- **31 additional framework modules** (locomotion, combat, player, ui, physics, ai, quest, etc.)
+- **Comprehensive game-design.md** (25KB) with UX guidelines
+- **Specialized agent commands** (dev.md, test.md, perf.md tailored for VR)
+- **Enhanced specs** (conventions.md, standards.md, decision-rules.md)
+
+**Decision:**
+Adopt remaining framework in 4 phases:
+
+**Phase 1: Core Modules (Priority: High)**
+- `locomotion/teleport.js`, `snap-turn.js`, `vignette.js` — VR comfort
+- `combat/projectile.js`, `melee.js`, `destructible.js` — Combat systems
+- `player/player-health.js` — Player damage/respawn
+- `quest/quest-monitor.js` — Battery/thermal monitoring
+
+**Phase 2: UI & Gameplay (Priority: Medium)**
+- `ui/settings-menu.js`, `tutorial.js` — Better VR menus
+- `gameplay/wave-manager.js`, `score-manager.js` — Game progression
+- `vfx/particles.js`, `damage-vignette.js`, `hit-feedback.js` — Effects
+
+**Phase 3: Utilities & AI (Priority: Low)**
+- `utils/save-load.js`, `spawner.js`, `timer.js`, `animator.js`, `analytics.js`
+- `ai/enemy-ai.js` — Behavior state machine
+- `physics/simple-physics.js` — Lightweight physics
+
+**Phase 4: Rules & Documentation**
+- Adopt `game-design.md` as `.claude/rules/game-design.md`
+- Add `specs/conventions.md`, `specs/standards.md`
+- Update agent commands for VR-specific workflows
+
+**Consequences:**
+- Positive: Unified codebase with proven VR patterns
+- Positive: Comprehensive UX guidelines improve game feel
+- Positive: Specialized VR agents improve development workflow
+- Negative: Large migration effort (~10-15 hours total)
+- Negative: Learning curve for new framework APIs
+- Risk: Breaking changes during migration → mitigated: incremental adoption, keep fallbacks
+
 ### ADR Template
 
 ```markdown
@@ -832,3 +925,623 @@ What was decided?
 1. Option A - rejected because...
 2. Option B - rejected because...
 ```
+
+---
+
+## 11. Framework Utilities (V30-V31)
+
+> Integrated from framework codebase. Location: `client/src/js/vendor/`
+
+### 11.1 Core Utilities
+
+#### ObjectPool (object-pool.js)
+GC-free object pooling for spawned entities.
+
+```javascript
+// Create pool with factory function
+var pool = ObjectPool.create(function() {
+  return document.createElement('a-entity');
+}, 20, { maxSize: 50 });
+
+// Usage
+var obj = pool.get();          // Get from pool (auto-visible)
+pool.release(obj);             // Return to pool (auto-hidden)
+pool.prewarm(10);              // Pre-allocate more objects
+pool.stats();                  // { available, inUse, total }
+pool.releaseAll();             // Release all in-use objects
+pool.clear();                  // Dispose all objects
+```
+
+#### Haptics (haptics.js)
+VR controller vibration feedback for Quest.
+
+```javascript
+// Basic pulse
+Haptics.pulse('right', 0.5, 100);  // hand, intensity (0-1), duration (ms)
+Haptics.pulse('both', 1.0, 200);   // Both hands
+
+// Presets
+Haptics.light('right');    // 0.2 intensity, 50ms (UI hover)
+Haptics.medium('left');    // 0.5 intensity, 100ms (hit confirm)
+Haptics.heavy('both');     // 1.0 intensity, 200ms (explosion)
+
+// Pattern sequence
+Haptics.pattern('right', [
+  { intensity: 0.5, duration: 50, pause: 30 },
+  { intensity: 1.0, duration: 100, pause: 0 }
+]);
+
+// Utility
+Haptics.isAvailable();     // Check if haptics supported
+Haptics.reset();           // Clear cached XR session
+```
+
+#### ScreenShake (screen-shake.js)
+Camera shake effect for impact feedback.
+
+```javascript
+// A-Frame component
+<a-entity id="player-rig" screen-shake="intensity: 0.1; duration: 200">
+
+// Trigger via component
+document.getElementById('player-rig').components['screen-shake'].shake(0.5, 300);
+
+// Global API
+ScreenShake.trigger(0.5, 300);  // intensity (0-1), duration (ms)
+ScreenShake.enable();           // Enable (default)
+ScreenShake.disable();          // Disable (accessibility)
+```
+
+#### Hitstop (hitstop.js)
+Impact freeze effect for combat feedback.
+
+```javascript
+// Basic trigger
+Hitstop.trigger(50);                     // 50ms full freeze
+Hitstop.trigger(100, { scale: 0.1 });    // 100ms slow-mo (10% speed)
+Hitstop.trigger(80, { zoom: true });     // With camera zoom punch
+
+// Presets
+Hitstop.light();     // 30ms freeze
+Hitstop.medium();    // 50ms freeze
+Hitstop.heavy();     // 80ms freeze + zoom
+Hitstop.critical();  // 120ms slow-mo + zoom
+
+// Utility
+Hitstop.cancel();       // End current hitstop
+Hitstop.enable();       // Enable (default)
+Hitstop.disable();      // Disable (accessibility)
+Hitstop.isActive();     // Check if currently active
+Hitstop.getState();     // { active, remaining, scale, zoom, enabled }
+```
+
+#### VRCore (vr-core.js)
+Shared utilities for Quest TWA VR games.
+
+```javascript
+// Loading screen
+VRCore.loadingScreen({
+  title: 'MY GAME<span>VR</span>',
+  titleColor: '#5af',
+  tips: ['Tip 1', 'Tip 2'],
+  timeout: 8000
+});
+
+// Auto-enter VR on Quest
+VRCore.autoEnterVR(sceneEl);
+
+// Quest optimizations (VRC compliance) — default 90Hz
+VRCore.applyQuestOptimizations(sceneEl);  // 90Hz, pixelRatio 1.0, disable AA
+VRCore.applyQuestOptimizations(sceneEl, { refreshRate: 120 });  // Custom rate
+
+// Runtime refresh rate control (V33)
+VRCore.getRefreshRate();       // Returns current rate (default 90)
+VRCore.setRefreshRate(120);    // Change at runtime (requires active VR session)
+
+// Utilities
+VRCore.isQuest();              // Detect Quest device
+VRCore.clearServiceWorkers();  // Clear stale SW cache
+VRCore.disableAntialias(sceneEl);
+```
+
+#### StateMachine (state-machine.js)
+Generic finite state machine utility.
+
+```javascript
+var fsm = StateMachine.create({
+  initial: 'idle',
+  states: {
+    idle: { enter: onIdleEnter, exit: onIdleExit },
+    playing: { enter: onPlayingEnter },
+    paused: { enter: onPausedEnter }
+  },
+  transitions: {
+    start: { from: 'idle', to: 'playing' },
+    pause: { from: 'playing', to: 'paused' },
+    resume: { from: 'paused', to: 'playing' }
+  }
+});
+
+fsm.transition('start');  // idle → playing
+fsm.current();            // 'playing'
+fsm.can('pause');         // true
+```
+
+#### PerfMonitor (perf-monitor.js)
+Real-time FPS and performance tracking.
+
+```javascript
+PerfMonitor.start();
+PerfMonitor.stop();
+PerfMonitor.getFPS();        // Current FPS
+PerfMonitor.getStats();      // { fps, frameTime, drawCalls }
+PerfMonitor.onDrop(fn, 60);  // Callback when FPS drops below threshold
+```
+
+---
+
+### 11.2 Locomotion Modules
+
+#### Teleport (locomotion/teleport.js)
+Point-and-teleport locomotion with arc visualization.
+
+```javascript
+// A-Frame component
+<a-entity id="right-hand" teleport-controls="teleportable: .floor; fadeDuration: 150">
+
+// Schema options
+teleportable: '.teleportable'   // CSS selector for valid surfaces
+button: 'trigger'               // trigger, grip, thumbstick
+cursorColor: '#00ff88'          // Valid destination color
+cursorInvalidColor: '#ff4444'   // Invalid destination color
+landingMaxAngle: 45             // Max floor angle in degrees
+fadeDuration: 150               // Fade transition (ms)
+
+// Global API
+Teleport.enable();      // Enable on all hands
+Teleport.disable();     // Disable on all hands
+Teleport.isEnabled();   // Check if enabled
+
+// Events
+'teleport-start' → { destination }
+'teleport-end' → { destination }
+```
+
+#### SnapTurn (locomotion/snap-turn.js)
+Thumbstick snap rotation for VR comfort.
+
+```javascript
+// A-Frame component
+<a-entity id="player-rig" snap-turn="turnAngle: 45; hand: right">
+
+// Schema options
+turnAngle: 45      // Degrees per turn (30, 45, 90)
+hand: 'right'      // Which hand thumbstick
+deadzone: 0.5      // Thumbstick deadzone
+
+// Global API
+SnapTurn.enable();
+SnapTurn.disable();
+```
+
+#### Vignette (locomotion/vignette.js)
+Comfort vignette during movement (motion sickness reduction).
+
+```javascript
+// A-Frame component
+<a-entity id="player-rig" comfort-vignette="intensity: 0.5">
+
+// Schema options
+intensity: 0.5     // Max vignette darkness (0-1)
+threshold: 0.1     // Movement speed to trigger
+
+// Global API
+ComfortVignette.enable();
+ComfortVignette.disable();
+```
+
+---
+
+### 11.3 Combat Modules
+
+#### Projectile (combat/projectile.js)
+Projectile spawning and physics.
+
+```javascript
+// Spawn projectile
+Projectile.spawn({
+  position: { x: 0, y: 1.5, z: -2 },
+  direction: { x: 0, y: 0, z: -1 },
+  speed: 10,
+  damage: 25,
+  color: '#ff6600',
+  lifetime: 3000
+});
+
+// Events on projectile entity
+'projectile-hit' → { target, damage, point }
+'projectile-expire' → {}
+```
+
+#### Melee (combat/melee.js)
+VR melee combat with velocity-based damage.
+
+```javascript
+// A-Frame component
+<a-entity id="right-hand" melee-weapon="damage: 50; swingThreshold: 3">
+
+// Schema options
+damage: 50              // Base damage
+swingThreshold: 3       // Min velocity to register hit
+hitCooldown: 200        // MS between hits
+
+// Events
+'melee-hit' → { target, damage, velocity, point }
+'melee-swing' → { velocity }
+```
+
+#### Destructible (combat/destructible.js)
+Destructible objects with health and fragments.
+
+```javascript
+// A-Frame component
+<a-entity destructible="health: 100; fragments: 8">
+
+// Schema options
+health: 100        // Starting health
+fragments: 8       // Number of debris pieces
+fragmentForce: 5   // Explosion force
+
+// Events
+'damage' → { amount, remaining }
+'destroyed' → {}
+```
+
+---
+
+### 11.4 Interaction Modules
+
+#### Grabbable (grabbable.js)
+VR hand grabbing with physics.
+
+```javascript
+// A-Frame component
+<a-entity grabbable="physics: true; throwForce: 8">
+
+// Schema options
+physics: true      // Enable physics on release
+throwForce: 8      // Throw velocity multiplier
+snapOnGrab: true   // Snap to hand position
+
+// Events
+'grab-start' → { hand }
+'grab-end' → { hand, velocity }
+```
+
+#### DistanceGrab (interaction/distance-grab.js)
+Grab objects at a distance with laser pointer.
+
+```javascript
+// A-Frame component
+<a-entity id="right-hand" distance-grab="maxDistance: 10">
+
+// Schema options
+maxDistance: 10    // Max grab distance
+pullSpeed: 5       // Object pull speed
+```
+
+#### Interactable (interaction/interactable.js)
+Generic interactable object component.
+
+```javascript
+// A-Frame component
+<a-entity interactable="highlight: true; hoverScale: 1.1">
+
+// Events
+'interact' → { hand }
+'hover-start' → {}
+'hover-end' → {}
+```
+
+#### PointerHighlight (interaction/pointer-highlight.js)
+Visual highlight when pointing at objects.
+
+```javascript
+// A-Frame component
+<a-entity pointer-highlight="color: #ffff00; opacity: 0.3">
+```
+
+#### SocketSnap (interaction/socket-snap.js)
+Snap objects to socket positions.
+
+```javascript
+// Socket
+<a-entity socket="accepts: .snappable">
+
+// Snappable object
+<a-entity class="snappable" socket-snap>
+```
+
+---
+
+### 11.5 VFX Modules
+
+#### Particles (vfx/particles.js)
+GPU-accelerated particle system wrapper.
+
+```javascript
+Particles.burst({
+  position: { x: 0, y: 1, z: 0 },
+  count: 20,
+  color: '#ff4444',
+  size: 0.05,
+  speed: 3,
+  lifetime: 500
+});
+```
+
+#### DamageVignette (vfx/damage-vignette.js)
+Screen damage flash effect.
+
+```javascript
+DamageVignette.flash(0.5);     // Flash with intensity 0-1
+DamageVignette.pulse(1.0);     // Low HP pulsing vignette
+DamageVignette.stop();         // Stop pulsing
+```
+
+#### HitFeedback (vfx/hit-feedback.js)
+Combined hit feedback (flash + shake + haptic).
+
+```javascript
+HitFeedback.trigger({
+  flash: true,
+  shake: 0.3,
+  haptic: 'medium'
+});
+```
+
+---
+
+### 11.6 Gameplay Modules
+
+#### WaveManager (gameplay/wave-manager.js)
+Wave-based game progression.
+
+```javascript
+var waves = WaveManager.create({
+  waves: [
+    { enemies: 5, delay: 1000 },
+    { enemies: 10, delay: 800 },
+    { enemies: 15, delay: 600, boss: true }
+  ],
+  onWaveStart: function(wave) { },
+  onWaveEnd: function(wave) { },
+  onAllComplete: function() { }
+});
+
+waves.start();
+waves.getCurrentWave();   // Current wave number
+waves.getProgress();      // { current, total, enemiesRemaining }
+```
+
+#### ScoreManager (gameplay/score-manager.js)
+Score tracking with multipliers.
+
+```javascript
+ScoreManager.add(100);           // Add points
+ScoreManager.addWithMultiplier(100, 2);  // With multiplier
+ScoreManager.get();              // Current score
+ScoreManager.getHighScore();     // Best score
+ScoreManager.reset();            // Reset to 0
+```
+
+---
+
+### 11.7 Player Module
+
+#### PlayerHealth (player/player-health.js)
+Player health management.
+
+```javascript
+// A-Frame component
+<a-entity player-health="max: 100; startHealth: 100">
+
+// API via component
+var health = el.components['player-health'];
+health.damage(25);      // Take damage
+health.heal(10);        // Heal
+health.getHealth();     // Current health
+health.isDead();        // Check if dead
+
+// Events
+'damage-taken' → { amount, remaining }
+'health-restored' → { amount, current }
+'player-death' → {}
+```
+
+---
+
+### 11.8 Quest Module
+
+#### QuestMonitor (quest/quest-monitor.js)
+Battery and thermal monitoring for Quest.
+
+```javascript
+// Battery
+QuestMonitor.getBatteryLevel();   // 0-100 or null
+QuestMonitor.isCharging();        // true/false/null
+
+// Thermal
+QuestMonitor.getThermalState();   // 'normal', 'warm', 'hot', 'unknown'
+
+// Callbacks
+QuestMonitor.onLowBattery(function(level) {
+  showBatteryWarning();
+}, 20);  // Threshold 20%
+
+QuestMonitor.onThermalWarning(function(state) {
+  if (state === 'hot') reduceQuality();
+});
+
+// Auto quality reduction
+QuestMonitor.enableAutoQuality(sceneEl);  // Auto-reduce on thermal
+QuestMonitor.disableAutoQuality();
+QuestMonitor.restoreQuality();
+
+// Status
+QuestMonitor.getStatus();  // { batteryLevel, charging, thermalState, ... }
+```
+
+---
+
+### 11.9 Other Utilities
+
+| Module | Purpose | Key API |
+|--------|---------|---------|
+| `hud.js` | HUD management | `HUD.init()`, `HUD.update()`, `HUD.message()` |
+| `timer.js` | Game timer | `Timer.start()`, `Timer.pause()`, `Timer.getRemaining()` |
+| `animator.js` | Animation sequencing | `Animator.sequence()`, `Animator.parallel()` |
+| `spawner.js` | Entity spawning | `Spawner.spawn()`, `Spawner.spawnWave()` |
+| `save-load.js` | Persistence | `SaveLoad.save()`, `SaveLoad.load()` |
+| `analytics.js` | Event logging | `Analytics.log()`, `Analytics.export()` |
+| `controllers.js` | Controller reference | Input mapping documentation |
+| `simple-physics.js` | Lightweight physics | `Physics.update()`, collision detection |
+| `enemy-ai.js` | Enemy behavior FSM | `EnemyAI.create()`, state-based AI |
+| `hand-model.js` | Hand visualization | Hand mesh rendering |
+| `settings-menu.js` | VR settings panel | In-VR settings UI |
+| `tutorial.js` | Tutorial system | Step-by-step hints |
+
+---
+
+### 11.10 Loading Order
+
+```html
+<!-- In game.html <head> before </head> -->
+
+<!-- Core (load first) -->
+<script src="js/vendor/vr-core.js"></script>
+<script src="js/vendor/object-pool.js"></script>
+<script src="js/vendor/state-machine.js"></script>
+
+<!-- VFX (before components) -->
+<script src="js/vendor/screen-shake.js"></script>
+<script src="js/vendor/hitstop.js"></script>
+<script src="js/vendor/haptics.js"></script>
+
+<!-- Locomotion -->
+<script src="js/vendor/locomotion/teleport.js"></script>
+<script src="js/vendor/locomotion/snap-turn.js"></script>
+<script src="js/vendor/locomotion/vignette.js"></script>
+
+<!-- Quest -->
+<script src="js/vendor/quest/quest-monitor.js"></script>
+
+<!-- Then game components and modules -->
+```
+
+---
+
+## 12. Performance Optimization Patterns (V46)
+
+> Added: 2026-02-04 | Reference: TASK-504
+
+### 12.1 Hazard System Tick Optimization
+
+All hazard update functions in [target-hazards.js](client/src/js/game/target-hazards.js) follow these GC-free patterns:
+
+#### **Pre-allocated Vectors (V37 + V46)**
+
+```javascript
+// In constructor - allocate once
+constructor(ts) {
+  this._projCamPos = new THREE.Vector3();      // Projectile collision
+  this._scareCamPos = new THREE.Vector3();     // Scare ball collision
+  this._chargerCamPos = new THREE.Vector3();   // Charger collision
+  this._laserCamPos = new THREE.Vector3();     // Laser sweep collision
+  this._launchCamPos = new THREE.Vector3();    // V46: Scare ball launch
+  this._launchDir = new THREE.Vector3();       // V46: Scare ball direction
+}
+
+// In tick functions - reuse with .set() or .copy()
+_updateScareBalls() {
+  this._cameraEl.object3D.getWorldPosition(this._scareCamPos);  // Reuse
+  const dist = b.pos.distanceTo(this._scareCamPos);             // No allocation
+}
+```
+
+#### **Direct Position Updates (V46)**
+
+```javascript
+// ❌ BAD: String parsing overhead every tick
+b.el.setAttribute('position', `${x} ${y} ${z}`);  // Parses "x y z" string
+
+// ✅ GOOD: Direct Three.js vector update
+b.el.object3D.position.set(x, y, z);              // Sets vector directly
+```
+
+**Impact:** Eliminates ~0.3-0.5ms per entity per tick on string parsing.
+
+#### **Tick Interval Standards**
+
+| Hazard Type | Interval | Updates/Sec | Rationale |
+|-------------|----------|-------------|-----------|
+| Projectiles | 50ms | 20 | Medium-speed tracking |
+| Chargers | 50ms | 20 | Medium-speed tracking |
+| Scare Balls | 50ms (V46) | 20 | Reduced from 33 (was 30ms) |
+| Laser Sweeps | 30ms | 33 | Fast sweeps need precision |
+| Danger Zones | 500ms | 2 | Slow area damage check |
+
+**Guideline:** Use 50ms for moving hazards, 30ms only when precision required.
+
+#### **Cached Element References (V37)**
+
+```javascript
+// In startTimers() - cache once
+this._cameraEl = document.getElementById('camera');
+this._leftHandEl = document.getElementById('left-hand');
+
+// In tick functions - use cached refs
+this._cameraEl.object3D.getWorldPosition(this._camPos);  // No getElementById
+```
+
+**Impact:** Eliminates 850+ `getElementById` calls per second across all hazard ticks.
+
+### 12.2 Quest Optimization Checklist
+
+When adding new VFX or hazards, apply these Quest-specific optimizations:
+
+| Feature | Desktop | Quest | Pattern |
+|---------|---------|-------|---------|
+| Point lights | ✓ Allowed | ❌ Skip if >2 total | Check `_isQuest` flag |
+| Tail particles | 3-5 | 0-1 | Reduce count drastically |
+| Animation loops | ✓ Full | ❌ Skip or static | Disable `animation__pulse` etc |
+| DOM createElement | Pool or minimal | ❌ Skip fallback | Prefer GPU particles |
+| Shadow casting | ✓ 1-2 lights | ❌ Basic, autoUpdate:false | Reduce shadow quality |
+
+**Example (V44-V46):**
+```javascript
+// Module-level Quest check (cache result)
+const _isQuest = typeof VRCore !== 'undefined' && VRCore.isQuest && VRCore.isQuest();
+
+// In code - conditional VFX
+if (!_isQuest) {
+  const light = document.createElement('a-entity');  // Desktop only
+  light.setAttribute('light', '...');
+}
+
+const tailCount = _isQuest ? 0 : 3;  // Quest: no tails, Desktop: 3 tails
+```
+
+### 12.3 Performance Budget Summary
+
+| System | Target Overhead | V46 Actual |
+|--------|-----------------|------------|
+| Scare Ball Tick | <0.5ms per ball | ~0.3ms ✓ |
+| Projectile Tick | <0.3ms per projectile | ~0.2ms ✓ |
+| Charger Tick | <0.4ms per charger | ~0.3ms ✓ |
+| Laser Sweep Tick | <0.5ms per sweep | ~0.4ms ✓ |
+| Total Hazard Overhead | <2.0ms | ~1.2ms ✓ |
+
+**Target:** 72fps = 13.9ms per frame. Hazard systems consume <10% of frame budget.
+
+---

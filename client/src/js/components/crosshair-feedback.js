@@ -6,6 +6,8 @@
  *
  * Attach to the crosshair ring: <a-ring crosshair-feedback>
  * Listens to document-level custom events dispatched by target-system.
+ *
+ * Performance: V36 TASK-468 - Pooled hit marker entities for zero GC on hits/kills
  */
 AFRAME.registerComponent('crosshair-feedback', {
   init() {
@@ -22,9 +24,35 @@ AFRAME.registerComponent('crosshair-feedback', {
     this._origColor = null;
     this._hitMarker = null;
 
+    // V36 TASK-468: Create hit marker pool (8 markers for rapid-fire scenarios)
+    this._initHitMarkerPool();
+
     document.addEventListener('crosshair-hit', this._onHit);
     document.addEventListener('crosshair-miss', this._onMiss);
     document.addEventListener('crosshair-kill', this._onKill);
+  },
+
+  _initHitMarkerPool() {
+    if (typeof ObjectPool === 'undefined' || !ObjectPool.create) {
+      console.warn('[crosshair-feedback] ObjectPool not available, using createElement fallback');
+      this._hitMarkerPool = null;
+      return;
+    }
+
+    const cam = this._ring.parentEl || this._ring.parentNode;
+    if (!cam) {
+      console.warn('[crosshair-feedback] No camera parent found, delaying pool init');
+      this._hitMarkerPool = null;
+      return;
+    }
+
+    this._hitMarkerPool = ObjectPool.create(() => {
+      const marker = document.createElement('a-text');
+      marker.setAttribute('font', 'mozillavr');
+      marker.setAttribute('align', 'center');
+      cam.appendChild(marker);
+      return marker;
+    }, 8);
   },
 
   remove() {
@@ -122,19 +150,29 @@ AFRAME.registerComponent('crosshair-feedback', {
   },
 
   _showHitMarker(color, isKill) {
-    // Remove previous marker
-    if (this._hitMarker && this._hitMarker.parentNode) {
-      this._hitMarker.parentNode.removeChild(this._hitMarker);
+    // V36 TASK-468: Use pool or fallback to createElement
+    const cam = this._ring.parentEl || this._ring.parentNode;
+    if (!cam) return;
+
+    // Initialize pool if not ready (deferred init on first hit)
+    if (!this._hitMarkerPool && typeof ObjectPool !== 'undefined' && ObjectPool.create) {
+      this._initHitMarkerPool();
     }
 
-    const marker = document.createElement('a-text');
+    const marker = this._hitMarkerPool ? this._hitMarkerPool.get() : document.createElement('a-text');
+
     marker.setAttribute('value', isKill ? '✕' : '×');
     marker.setAttribute('position', '0 0 -0.998');
-    marker.setAttribute('align', 'center');
     marker.setAttribute('color', color);
     marker.setAttribute('scale', isKill ? '0.12 0.12 0.12' : '0.08 0.08 0.08');
-    marker.setAttribute('font', 'mozillavr');
     marker.setAttribute('material', `shader: flat; opacity: 1`);
+    marker.setAttribute('visible', 'true');
+
+    if (!this._hitMarkerPool) {
+      marker.setAttribute('align', 'center');
+      marker.setAttribute('font', 'mozillavr');
+      cam.appendChild(marker);
+    }
 
     // Fade + scale out
     const dur = isKill ? 300 : 180;
@@ -149,13 +187,15 @@ AFRAME.registerComponent('crosshair-feedback', {
       dur, easing: 'easeOutQuad',
     });
 
-    // Append to camera (parent of crosshair)
-    const cam = this._ring.parentEl || this._ring.parentNode;
-    if (cam) cam.appendChild(marker);
-
-    this._hitMarker = marker;
     setTimeout(() => {
-      if (marker.parentNode) marker.parentNode.removeChild(marker);
+      if (this._hitMarkerPool) {
+        marker.setAttribute('visible', 'false');
+        marker.removeAttribute('animation__fade');
+        marker.removeAttribute('animation__grow');
+        this._hitMarkerPool.release(marker);
+      } else if (marker.parentNode) {
+        marker.parentNode.removeChild(marker);
+      }
     }, dur + 50);
   },
 });

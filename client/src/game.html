@@ -71,6 +71,48 @@
     <div class="countdown-text" id="countdown-number">3</div>
   </div>
 
+  <!-- V30-V31: Framework utilities (must load before components) -->
+  <!-- Core utilities (V30) -->
+  <script src="./js/vendor/object-pool.js"></script>
+  <script src="./js/vendor/haptics.js"></script>
+  <script src="./js/vendor/screen-shake.js"></script>
+  <script src="./js/vendor/hitstop.js"></script>
+  <script src="./js/vendor/grabbable.js"></script>
+  <script src="./js/vendor/state-machine.js"></script>
+  <script src="./js/vendor/perf-monitor.js"></script>
+  <!-- V36 TASK-470: Quest thermal monitoring -->
+  <script src="./js/vendor/quest/quest-monitor.js"></script>
+  <!-- V31: Extended framework modules -->
+  <script src="./js/vendor/vr-core.js"></script>
+  <script src="./js/vendor/hud.js"></script>
+  <script src="./js/vendor/timer.js"></script>
+  <script src="./js/vendor/animator.js"></script>
+  <script src="./js/vendor/save-load.js"></script>
+  <script src="./js/vendor/spawner.js"></script>
+  <!-- V31: Locomotion -->
+  <script src="./js/vendor/locomotion/teleport.js"></script>
+  <script src="./js/vendor/locomotion/snap-turn.js"></script>
+  <script src="./js/vendor/locomotion/vignette.js"></script>
+  <!-- V31: Combat -->
+  <script src="./js/vendor/combat/projectile.js"></script>
+  <script src="./js/vendor/combat/melee.js"></script>
+  <script src="./js/vendor/combat/destructible.js"></script>
+  <!-- V31: Player -->
+  <script src="./js/vendor/player/player-health.js"></script>
+  <!-- V31: VFX -->
+  <script src="./js/vendor/vfx/particles.js"></script>
+  <script src="./js/vendor/vfx/damage-vignette.js"></script>
+  <script src="./js/vendor/vfx/hit-feedback.js"></script>
+  <!-- V31: Interaction -->
+  <script src="./js/vendor/interaction/pointer-highlight.js"></script>
+  <script src="./js/vendor/interaction/hand-model.js"></script>
+  <script src="./js/vendor/interaction/interactable.js"></script>
+  <!-- V31: Quest -->
+  <script src="./js/vendor/quest/quest-monitor.js"></script>
+  <!-- V31: Physics & AI (optional, load on demand) -->
+  <script src="./js/vendor/physics/simple-physics.js"></script>
+  <script src="./js/vendor/ai/enemy-ai.js"></script>
+
   <!-- Register A-Frame components before scene -->
   <script src="./js/components/smooth-locomotion.js"></script>
   <script src="./js/components/shoot-controls.js"></script>
@@ -83,11 +125,13 @@
   <script src="./js/components/hand-shield.js"></script>
   <script src="./js/components/env-reflections.js"></script>
 
-  <a-scene id="game-scene" vr-mode-ui="enterVRButton: #enter-vr-custom" shadow="type: pcfsoft; autoUpdate: true"
+  <a-scene id="game-scene" vr-mode-ui="enterVRButton: #enter-vr-custom"
+           renderer="antialias: false; physicallyCorrectLights: false"
+           shadow="type: basic; autoUpdate: false"
            bloom-effect="strength: 0.3; radius: 0.4; threshold: 0.7"
            env-reflections>
     <!-- Player Rig -->
-    <a-entity id="player-rig" position="0 0 0" smooth-locomotion="speed: 3; camera: #camera">
+    <a-entity id="player-rig" position="0 0 0" smooth-locomotion="speed: 3; camera: #camera" screen-shake>
       <a-camera id="camera" position="0 1.6 0" wasd-controls="acceleration: 20" look-controls camera-effects="shakeLevel: medium">
         <!-- Crosshair -->
         <a-ring id="crosshair" position="0 0 -1" radius-inner="0.01" radius-outer="0.015"
@@ -99,6 +143,9 @@
                 scale="0.35 0.35 0.35" color="#ffaa00" font="mozillavr" align="right"></a-text>
         <a-text id="hud-combo" value="" position="0 0.2 -1"
                 scale="0.3 0.3 0.3" color="#ff44aa" font="mozillavr" align="center"></a-text>
+        <!-- V36 TASK-470: Quest thermal warning HUD -->
+        <a-text id="hud-debuff" value="" position="0 -0.3 -1" visible="false"
+                scale="0.18 0.18 0.18" color="#ffaa44" font="mozillavr" align="center"></a-text>
         <!-- V2 HUD elements -->
         <a-text id="hud-lives" value="" position="-0.45 0.22 -1"
                 scale="0.25 0.25 0.25" color="#ff4444" font="mozillavr" align="left"></a-text>
@@ -159,12 +206,9 @@
     <a-box position="0 2 15" width="30" height="5" depth="0.1"
            material="color: #0044aa; opacity: 0.15; shader: flat"></a-box>
 
-    <!-- Lighting -->
-    <a-light type="ambient" color="#333355" intensity="0.6"></a-light>
-    <a-light type="point" position="0 10 0" intensity="1.6" color="#4466ff" distance="40"></a-light>
-    <a-light type="point" position="-8 6 -8" intensity="0.8" color="#ff4444" distance="25"></a-light>
-    <a-light type="point" position="8 6 -8" intensity="0.8" color="#44ff44" distance="25"></a-light>
-    <a-light type="point" position="0 4 8" intensity="0.6" color="#ff88ff" distance="20"></a-light>
+    <!-- Lighting (V34: optimized for Quest - max 2 lights) -->
+    <a-light type="ambient" color="#445566" intensity="0.5"></a-light>
+    <a-light type="directional" position="1 2 1" intensity="1.0" color="#aaccff" castShadow="false"></a-light>
 
     <!-- Decorative pillars -->
     <a-cylinder position="-14 2 -14" radius="0.3" height="4" color="#1a1a4e"

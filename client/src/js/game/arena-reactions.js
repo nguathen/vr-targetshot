@@ -9,13 +9,19 @@ class ArenaReactions {
     this._active = false;
     this._listeners = [];
     this._intensity = 0.5; // 0-1 master scale
-    this._killTimes = [];
+
+    // V38 TASK-478: Pre-allocate circular buffer for kill tracking (GC-free)
+    this._killTimeBuffer = new Array(20).fill(0);
+    this._killTimeIndex = 0;
   }
 
   init(sceneEl) {
     this._scene = sceneEl;
     this._active = true;
-    this._killTimes = [];
+
+    // V38 TASK-478: Reset circular buffer index
+    this._killTimeIndex = 0;
+    this._killTimeBuffer.fill(0);
 
     this._listen('boss-spawn', (e) => this._onBossSpawn(e));
     this._listen('combo-milestone', (e) => this._onComboMilestone(e));
@@ -31,7 +37,10 @@ class ArenaReactions {
     this._active = false;
     this._listeners.forEach(({ event, fn }) => document.removeEventListener(event, fn));
     this._listeners = [];
-    this._killTimes = [];
+
+    // V38 TASK-478: Reset circular buffer
+    this._killTimeIndex = 0;
+    this._killTimeBuffer.fill(0);
   }
 
   _listen(event, fn) {
@@ -113,12 +122,23 @@ class ArenaReactions {
   _onKill() {
     if (!this._active) return;
     const now = Date.now();
-    this._killTimes.push(now);
-    // Keep last 3 seconds
-    this._killTimes = this._killTimes.filter(t => now - t < 3000);
 
-    if (this._killTimes.length >= 5) {
-      this._killTimes = [];
+    // V38 TASK-478: Circular buffer write (no array allocation)
+    this._killTimeBuffer[this._killTimeIndex] = now;
+    this._killTimeIndex = (this._killTimeIndex + 1) % this._killTimeBuffer.length;
+
+    // Count recent kills within 3 seconds (no filter allocation)
+    let recentKills = 0;
+    for (let i = 0; i < this._killTimeBuffer.length; i++) {
+      if (now - this._killTimeBuffer[i] < 3000) {
+        recentKills++;
+      }
+    }
+
+    if (recentKills >= 5) {
+      // Reset buffer for next streak
+      this._killTimeBuffer.fill(0);
+      this._killTimeIndex = 0;
       this._triggerKillStreak();
     }
   }

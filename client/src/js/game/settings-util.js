@@ -13,6 +13,15 @@ const DEFAULT_SETTINGS = {
   screenShake: 'medium',
   colorblindMode: 'none',
   difficulty: 'normal',
+  // V30 TASK-403: Hitstop effect toggle (accessibility)
+  hitstop: true,
+  // V30 TASK-405: Audio category volumes (0-1)
+  audioCategories: {
+    ambient: 0.7,
+    action: 1.0,
+    ui: 0.8,
+    voice: 1.0,
+  },
 };
 
 // Colorblind-safe color remapping palettes

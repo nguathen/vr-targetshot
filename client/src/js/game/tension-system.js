@@ -4,8 +4,10 @@
  * TASK-311: Sudden Surge Events
  * TASK-312: Power-Down Debuffs
  * TASK-313: Closing Arena Walls
+ * V30 TASK-403: Hitstop integration for impact effects
  */
 import audioManager from '../core/audio-manager.js';
+import { getSettings } from './settings-util.js';
 
 // ─── TASK-310: Tension Vignette & Heartbeat ───
 
@@ -347,6 +349,52 @@ class TensionSystem {
         dur: 2000, easing: 'easeInOutQuad',
       });
     });
+  }
+
+  // ─── V30 TASK-403: Hitstop Integration ───
+
+  /**
+   * Check if hitstop is enabled in settings.
+   */
+  _isHitstopEnabled() {
+    const settings = getSettings();
+    return settings.hitstop !== false && window.Hitstop;
+  }
+
+  /**
+   * Trigger hitstop for boss kills (80ms freeze + zoom).
+   */
+  triggerBossKillHitstop() {
+    if (!this._isHitstopEnabled()) return;
+    window.Hitstop.heavy();
+  }
+
+  /**
+   * Trigger hitstop for bomb explosions (50ms freeze).
+   */
+  triggerExplosionHitstop() {
+    if (!this._isHitstopEnabled()) return;
+    window.Hitstop.medium();
+  }
+
+  /**
+   * Trigger hitstop for railgun/heavy weapon hits (30ms light freeze).
+   */
+  triggerHeavyHitHitstop() {
+    if (!this._isHitstopEnabled()) return;
+    window.Hitstop.light();
+  }
+
+  /**
+   * Trigger hitstop for combo milestones (120ms slow-mo with zoom).
+   * @param {number} combo - Current combo count
+   */
+  triggerComboMilestoneHitstop(combo) {
+    if (!this._isHitstopEnabled()) return;
+    // Trigger on combo 50, 100, 150, etc.
+    if (combo > 0 && combo % 50 === 0) {
+      window.Hitstop.critical();
+    }
   }
 }
 

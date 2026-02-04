@@ -18,6 +18,14 @@ class AudioManager {
     this._ctx = null;
     this._enabled = true;
     this._volume = 0.8;
+    // V30 TASK-405: Category volume levels (0-1)
+    this._categoryVolumes = {
+      ambient: 0.7,
+      action: 1.0,
+      ui: 0.8,
+      voice: 1.0,
+    };
+    this._categoryBuses = null;
   }
 
   loadSettings() {
@@ -28,6 +36,14 @@ class AudioManager {
         const s = profile.settings || {};
         this._enabled = s.sfx !== false;
         this._volume = (s.volume !== undefined ? s.volume : 80) / 100;
+        // V30 TASK-405: Load category volumes from settings
+        if (s.audioCategories) {
+          for (const [cat, level] of Object.entries(s.audioCategories)) {
+            if (this._categoryVolumes.hasOwnProperty(cat)) {
+              this._categoryVolumes[cat] = Math.max(0, Math.min(1, level));
+            }
+          }
+        }
       }
     } catch (e) { /* ignore */ }
   }
@@ -99,7 +115,110 @@ class AudioManager {
     this._busP2.connect(this._masterGain);
     this._activeSounds = 0;
     this._maxConcurrent = 8;
+    // V30 TASK-405: Setup category buses
+    this._setupCategoryBuses();
   }
+
+  // ─── V30 TASK-405: Category-based Volume Control ───────────────────────────
+  /**
+   * Setup category buses for independent volume control.
+   * Architecture: sounds → category bus → priority bus → master → destination
+   */
+  _setupCategoryBuses() {
+    const ctx = this._ctx;
+    this._categoryBuses = {
+      ambient: ctx.createGain(),
+      action: ctx.createGain(),
+      ui: ctx.createGain(),
+      voice: ctx.createGain(),
+    };
+    // Set initial volumes and connect to default priority bus (P1)
+    for (const [cat, bus] of Object.entries(this._categoryBuses)) {
+      bus.gain.value = this._categoryVolumes[cat];
+      bus.connect(this._busP1);
+    }
+  }
+
+  /**
+   * Get destination node for a specific category and priority.
+   * @param {string} category - 'ambient', 'action', 'ui', 'voice'
+   * @param {number} priority - 0 (critical), 1 (high), 2 (low)
+   * @returns {GainNode}
+   */
+  getCategoryDest(category, priority = 1) {
+    if (!this._categoryBuses) return this._getDest(priority);
+    const bus = this._categoryBuses[category];
+    if (!bus) return this._getDest(priority);
+    // Reconnect to correct priority bus if needed
+    const priBus = this._getDest(priority);
+    if (bus._connectedTo !== priBus) {
+      try { bus.disconnect(); } catch (_e) { /* ignore */ }
+      bus.connect(priBus);
+      bus._connectedTo = priBus;
+    }
+    return bus;
+  }
+
+  /**
+   * Set volume for a specific audio category.
+   * @param {string} category - 'ambient', 'action', 'ui', 'voice'
+   * @param {number} level - Volume level 0-1
+   */
+  setCategoryVolume(category, level) {
+    const vol = Math.max(0, Math.min(1, level));
+    this._categoryVolumes[category] = vol;
+    if (this._categoryBuses && this._categoryBuses[category]) {
+      const ctx = this._ctx;
+      const bus = this._categoryBuses[category];
+      bus.gain.cancelScheduledValues(ctx.currentTime);
+      bus.gain.setValueAtTime(bus.gain.value, ctx.currentTime);
+      bus.gain.linearRampToValueAtTime(vol, ctx.currentTime + 0.05);
+    }
+  }
+
+  /**
+   * Get current volume for a category.
+   * @param {string} category
+   * @returns {number} Volume level 0-1
+   */
+  getCategoryVolume(category) {
+    return this._categoryVolumes[category] ?? 1.0;
+  }
+
+  /**
+   * Set all category volumes at once.
+   * @param {Object} volumes - { ambient, action, ui, voice }
+   */
+  setCategoryVolumes(volumes) {
+    for (const [cat, level] of Object.entries(volumes)) {
+      if (this._categoryVolumes.hasOwnProperty(cat)) {
+        this.setCategoryVolume(cat, level);
+      }
+    }
+  }
+
+  /**
+   * Map audio type to category.
+   * @param {string} type - Sound type (weapon, hit, ui, ambient, etc.)
+   * @returns {string} Category name
+   */
+  _mapTypeToCategory(type) {
+    const mapping = {
+      // Action sounds
+      weapon: 'action', hit: 'action', miss: 'action', explosion: 'action',
+      combo: 'action', spawn: 'action', boss: 'action', hazard: 'action',
+      surge: 'action', bomb: 'action', chain: 'action',
+      // UI sounds
+      menu: 'ui', countdown: 'ui', achievement: 'ui', dissolve: 'ui',
+      notification: 'ui', button: 'ui',
+      // Ambient sounds
+      ambient: 'ambient', hum: 'ambient', weather: 'ambient', music: 'ambient',
+      // Voice/announcer
+      voice: 'voice', announcer: 'voice',
+    };
+    return mapping[type] || 'action';
+  }
+  // ─── End V30 TASK-405 ──────────────────────────────────────────────────────
 
   _getDest(priority = 2) {
     if (!this._busP0) return this.destination;
@@ -177,11 +296,16 @@ class AudioManager {
     }
   }
 
-  /** Spatial target ambient hum */
+  /** Spatial target ambient hum (V30: routes through ambient category) */
   createTargetHum(pos, type) {
     if (!this._enabled) return null;
     const ctx = this._getCtx();
-    const panner = this._createPanner(pos);
+    // V30 TASK-405: Route through ambient category bus
+    const panner = this._createPanner(pos, 2); // Low priority
+    if (this._categoryBuses?.ambient) {
+      try { panner.disconnect(); } catch (_e) { /* ignore */ }
+      panner.connect(this._categoryBuses.ambient);
+    }
 
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();

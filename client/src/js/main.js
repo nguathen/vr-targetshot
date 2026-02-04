@@ -849,6 +849,11 @@ authManager.waitReady().then(() => {
     setupMouseClick(scene);
     setupControllerClick(scene);
 
+    // V35: Apply Quest optimizations (90Hz, pixelRatio 1.0, disable AA)
+    if (typeof VRCore !== 'undefined' && VRCore.applyQuestOptimizations) {
+      VRCore.applyQuestOptimizations(scene);
+    }
+
     // Auto-enter VR on Quest (required for scene to be visible)
     if (navigator.xr && scene.enterVR) {
       navigator.xr.isSessionSupported('immersive-vr').then(ok => {

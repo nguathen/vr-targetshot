@@ -1,5 +1,10 @@
 import { getSettings } from '../game/settings-util.js';
 
+/**
+ * Haptic Manager — controller vibration feedback.
+ * V30 TASK-401: Delegates to window.Haptics utility when available.
+ * Falls back to direct WebXR API calls for compatibility.
+ */
 class HapticManager {
   pulse(intensity, duration) {
     const settings = getSettings();
@@ -8,7 +13,13 @@ class HapticManager {
 
     const scaledIntensity = Math.min(intensity * scale, 1.0);
 
-    // Strategy 1: WebXR inputSources (Quest Browser — most reliable)
+    // V30 TASK-401: Use Haptics utility if available
+    if (window.Haptics) {
+      window.Haptics.pulse('both', scaledIntensity, duration);
+      return;
+    }
+
+    // Fallback: Strategy 1 — WebXR inputSources (Quest Browser — most reliable)
     const scene = document.getElementById('scene');
     const xrSession = scene?.xrSession       // A-Frame 1.4+
       || scene?.renderer?.xr?.getSession?.(); // Three.js fallback
@@ -29,7 +40,7 @@ class HapticManager {
       return;
     }
 
-    // Strategy 2: A-Frame tracked controller components (desktop VR / older runtimes)
+    // Fallback: Strategy 2 — A-Frame tracked controller components (desktop VR / older runtimes)
     ['left-hand', 'right-hand'].forEach(id => {
       const el = document.getElementById(id);
       if (!el?.components) return;

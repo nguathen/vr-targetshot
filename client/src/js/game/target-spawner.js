@@ -126,28 +126,10 @@ export default class TargetSpawner {
       spawnPos._beatSpawnTime = Date.now();
     }
 
+    // V39 TASK-479: Disabled bomb feature (FPS impact)
+    // Bomb explosions create 40+ DOM elements per event, causing severe FPS drops
     if (typeId === 'bomb') {
-      const cam = document.querySelector('[camera]');
-      let warningTime = 800;
-      if (cam) {
-        const cp = cam.object3D.position;
-        const dx = spawnPos.x - cp.x, dy = spawnPos.y - cp.y, dz = spawnPos.z - cp.z;
-        if (Math.sqrt(dx * dx + dy * dy + dz * dz) < 3) warningTime = 400;
-      }
-      this.spawnBombWarning(spawnPos);
-      audioManager.playBombWarning();
-      document.dispatchEvent(new CustomEvent('hud-announce', {
-        detail: { text: '⚠ BOMB INCOMING!', color: '#ff4444', duration: 1200 }
-      }));
-      setTimeout(() => {
-        if (!ts._running) return;
-        this.spawnTelegraph(spawnPos, typeId);
-        setTimeout(() => {
-          if (!ts._running) return;
-          this.spawnTargetAt(typeId, type, spawnPos);
-        }, 500);
-      }, warningTime);
-      return;
+      return; // Skip bomb spawning entirely
     }
 
     this.spawnTelegraph(spawnPos, typeId);
@@ -354,6 +336,12 @@ export default class TargetSpawner {
       ts._container.appendChild(el);
     }
     ts._targets.add(el);
+
+    // V36 TASK-465: Maintain target cache for GC-free target-indicator.js
+    if (window.__targetCache) {
+      window.__targetCache.add(el);
+    }
+
     audioManager.playSpawn({ x, y, z });
 
     if (spawnPos._rhythmTarget) {
@@ -450,7 +438,8 @@ export default class TargetSpawner {
     });
     scene.appendChild(light);
 
-    const particleCount = isBoss ? 5 : 3;
+    // V38 TASK-477: Skip particles on Quest (30-40 spawn bursts/min → 0)
+    const particleCount = (typeof VRCore !== 'undefined' && VRCore.isQuest && VRCore.isQuest()) ? 0 : (isBoss ? 5 : 3);
     for (let i = 0; i < particleCount; i++) {
       const angle = (i / particleCount) * Math.PI * 2;
       const dist = size;
