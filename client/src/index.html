@@ -227,13 +227,12 @@
   <script src="./js/components/gpu-particles.js"></script>
   <script src="./js/components/dissolve-effect.js"></script>
   <script src="./js/components/hand-shoot.js"></script>
-  <script src="./js/components/fps-counter.js"></script>
 
   <a-scene id="scene" vr-mode-ui="enterVRButton: #enter-vr-btn" shadow="type: pcfsoft; autoUpdate: true"
            bloom-effect="strength: 0.6; radius: 0.4; threshold: 0.7" combo-popup-listener>
     <!-- Player Rig -->
     <a-entity id="player-rig" position="0 0 0">
-      <a-camera id="camera" position="0 1.6 0" wasd-controls-enabled="false" look-controls camera-effects="shakeLevel: medium" target-indicator fps-counter="logInterval: 3">
+      <a-camera id="camera" position="0 1.6 0" wasd-controls-enabled="false" look-controls camera-effects="shakeLevel: medium" target-indicator>
         <!-- Game HUD (hidden until game starts) -->
         <!-- Crosshair: outer ring + main ring + center dot (TASK-398: solid, small items OK) -->
         <a-ring id="crosshair-outer" position="0 0 -1" radius-inner="0.025" radius-outer="0.027"

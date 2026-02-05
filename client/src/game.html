@@ -131,7 +131,6 @@
   <script src="./js/components/weapon-model.js"></script>
   <script src="./js/components/hand-shield.js"></script>
   <script src="./js/components/env-reflections.js"></script>
-  <script src="./js/components/fps-counter.js"></script>
 
   <!-- V32/V34 Quest performance: handled by V34 script above, plus DOM cleanup -->
   <script>
@@ -182,9 +181,8 @@
       var crosshair = document.getElementById('crosshair');
       if (crosshair) crosshair.remove();
 
-      // TASK-467: Hide ALL HUD text (except FPS counter)
+      // TASK-467: Hide ALL HUD text
       document.querySelectorAll('a-text').forEach(function(t) {
-        if (t.id && t.id.indexOf('hud-fps') === 0) return; // Keep FPS visible
         t.setAttribute('visible', 'false');
       });
 
@@ -265,7 +263,7 @@
            env-reflections>
     <!-- Player Rig -->
     <a-entity id="player-rig" position="0 0 0" smooth-locomotion="speed: 3; camera: #camera">
-      <a-camera id="camera" position="0 1.6 0" wasd-controls="acceleration: 20" look-controls camera-effects="shakeLevel: medium" fps-counter="logInterval: 3">
+      <a-camera id="camera" position="0 1.6 0" wasd-controls="acceleration: 20" look-controls camera-effects="shakeLevel: medium">
         <!-- Crosshair -->
         <a-ring id="crosshair" position="0 0 -1" radius-inner="0.01" radius-outer="0.015"
                 color="#00ff88" material="shader: flat; opacity: 0.8"></a-ring>
