@@ -78,7 +78,7 @@
       });
       // Remove ambient particles
       document.querySelectorAll('.ambient-particle').forEach(function(el) { el.remove(); });
-      // V43: Hide floor-edge-gradient only
+      // V43: Hide floor-edge-gradient (causes FPS drop)
       document.querySelectorAll('.floor-edge-gradient').forEach(function(el) {
         el.setAttribute('visible', 'false');
       });
