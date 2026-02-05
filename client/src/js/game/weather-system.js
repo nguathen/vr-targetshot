@@ -6,6 +6,10 @@
  * - Underwater: rising bubbles + jellyfish
  */
 
+// V39: Quest detection for disabling weather
+const _isQuest = typeof window !== 'undefined' &&
+  (window.__isQuestDevice || /Quest|Android|Mobile/i.test(navigator.userAgent));
+
 const WEATHER_CONFIGS = {
   cyber: {
     type: 'rain',
@@ -59,6 +63,12 @@ class WeatherSystem {
   }
 
   init(sceneEl) {
+    // V39: Disable weather entirely on Quest
+    if (_isQuest) {
+      console.log('[V39] weather-system: Disabled on Quest');
+      this._enabled = false;
+      return;
+    }
     this._scene = sceneEl;
     // Create dedicated container
     let container = sceneEl.querySelector('#weather-container');
@@ -87,6 +97,13 @@ class WeatherSystem {
 
   start() {
     if (this._running || !this._config || !this._container) return;
+
+    // TASK-421: Disable weather on Quest for performance (100-200 particles/frame too expensive)
+    if (window.__isQuestDevice || /Quest|Android|Mobile/i.test(navigator.userAgent)) {
+      console.log('[weather] Disabled on Quest for performance');
+      return;
+    }
+
     this._running = true;
 
     const cfg = this._config;

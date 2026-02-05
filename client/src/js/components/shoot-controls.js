@@ -4,6 +4,11 @@
  *
  * Usage: <a-entity shoot-controls="hand: right">
  */
+
+// TASK-430: Quest detection for disabling visual effects
+const _isQuestSC = typeof window !== 'undefined' &&
+  (window.__isQuestSCDevice || /Quest|Android|Mobile/i.test(navigator.userAgent));
+
 AFRAME.registerComponent('shoot-controls', {
   schema: {
     hand: { type: 'string', default: 'right' },
@@ -18,6 +23,23 @@ AFRAME.registerComponent('shoot-controls', {
     this._swayTime = Math.random() * 1000;
     this._swayOffsetY = 0;
     this._swayOffsetX = 0;
+    // TASK-462: Frame counter for Quest throttling
+    this._frameCount = 0;
+
+    // TASK-396: Pre-allocate vectors for GC-free event handlers
+    this._origin = new THREE.Vector3();
+    this._direction = new THREE.Vector3();
+    this._end = new THREE.Vector3();
+    this._mid = new THREE.Vector3();
+    this._targetPos = new THREE.Vector3();
+    this._toTarget = new THREE.Vector3();
+    this._shellPos = new THREE.Vector3();
+    this._sparkPos = new THREE.Vector3();
+    this._muzzlePos = new THREE.Vector3();
+    this._muzzleDir = new THREE.Vector3();
+    this._upVec = new THREE.Vector3(0, 1, 0);
+    this._quat = new THREE.Quaternion();
+    this._euler = new THREE.Euler();
   },
 
   remove() {
@@ -35,6 +57,9 @@ AFRAME.registerComponent('shoot-controls', {
 
   tick(time, delta) {
     if (!delta) return;
+
+    // TASK-462: Throttle tick() to every 3rd frame on Quest (idle sway doesn't need 90Hz)
+    if (_isQuestSC && this._frameCount++ % 3 !== 0) return;
 
     // TASK-342: Fade muzzle light
     if (this._muzzleLight && this._muzzleLightFade > 0) {
@@ -106,14 +131,12 @@ AFRAME.registerComponent('shoot-controls', {
           this._spawnRicochet(hit.point);
         }
       } else {
-        // Total miss — ricochet at far end of ray
-        const origin = new THREE.Vector3();
-        const direction = new THREE.Vector3();
-        this.el.object3D.getWorldPosition(origin);
-        this.el.object3D.getWorldDirection(direction);
-        direction.negate();
-        const farPoint = origin.clone().add(direction.multiplyScalar(25));
-        this._spawnRicochet(farPoint);
+        // Total miss — ricochet at far end of ray (TASK-396: GC-free)
+        this.el.object3D.getWorldPosition(this._origin);
+        this.el.object3D.getWorldDirection(this._direction);
+        this._direction.negate();
+        this._end.copy(this._direction).multiplyScalar(25).add(this._origin);
+        this._spawnRicochet(this._end);
       }
       this._flashLaser(weapon);
     }
@@ -135,8 +158,9 @@ AFRAME.registerComponent('shoot-controls', {
     // Weapon recoil kick (snap back quickly)
     this._applyRecoil(weapon);
 
+    // TASK-430: Skip shell casing on Quest for performance
     // Shell casing eject (pistol, shotgun, smg — not sniper/railgun)
-    if (!weapon || (weapon.id !== 'sniper' && weapon.id !== 'railgun')) {
+    if (!_isQuestSC && (!weapon || (weapon.id !== 'sniper' && weapon.id !== 'railgun'))) {
       this._spawnShellCasing(weapon);
     }
   },
@@ -171,8 +195,9 @@ AFRAME.registerComponent('shoot-controls', {
     const scene = this.el.sceneEl;
     if (!scene) return;
 
-    const pos = new THREE.Vector3();
-    this.el.object3D.getWorldPosition(pos);
+    // TASK-396: GC-free - reuse pre-allocated vector
+    this.el.object3D.getWorldPosition(this._shellPos);
+    const pos = this._shellPos;
 
     const shell = document.createElement('a-cylinder');
     shell.setAttribute('radius', '0.005');
@@ -198,10 +223,11 @@ AFRAME.registerComponent('shoot-controls', {
 
     scene.appendChild(shell);
     // TASK-365: Spark on shell casing floor hit
+    const self = this;
     setTimeout(() => {
       if (shell.parentNode) {
-        const sp = new THREE.Vector3();
-        shell.object3D.getWorldPosition(sp);
+        shell.object3D.getWorldPosition(self._sparkPos);
+        const sp = self._sparkPos;
         // Tiny spark burst at landing position
         const spark = document.createElement('a-sphere');
         spark.setAttribute('radius', '0.005');
@@ -216,28 +242,26 @@ AFRAME.registerComponent('shoot-controls', {
   },
 
   _shotgunHit(raycaster, weapon) {
-    const targets = document.querySelectorAll('.target');
-    const origin = new THREE.Vector3();
-    const direction = new THREE.Vector3();
+    // TASK-395: Use cached targets instead of querySelectorAll
+    const targets = window.getTargetCache ? window.getTargetCache() : document.querySelectorAll('.target');
+    // TASK-396: GC-free - reuse pre-allocated vectors
+    this.el.object3D.getWorldPosition(this._origin);
+    this.el.object3D.getWorldDirection(this._direction);
+    this._direction.negate();
 
-    this.el.object3D.getWorldPosition(origin);
-    this.el.object3D.getWorldDirection(direction);
-    direction.negate();
-
+    const self = this;
     targets.forEach(targetEl => {
-      const targetPos = new THREE.Vector3();
-      targetEl.object3D.getWorldPosition(targetPos);
-
-      const toTarget = targetPos.clone().sub(origin);
-      const dist = toTarget.length();
+      targetEl.object3D.getWorldPosition(self._targetPos);
+      self._toTarget.copy(self._targetPos).sub(self._origin);
+      const dist = self._toTarget.length();
       if (dist > 50) return;
 
-      toTarget.normalize();
-      const angle = toTarget.angleTo(direction);
+      self._toTarget.normalize();
+      const angle = self._toTarget.angleTo(self._direction);
 
       if (angle < weapon.spread) {
         targetEl.dispatchEvent(new CustomEvent('hit', {
-          detail: { point: targetPos, damage: weapon.damage },
+          detail: { point: self._targetPos.clone(), damage: weapon.damage },
         }));
       }
     });
@@ -254,6 +278,9 @@ AFRAME.registerComponent('shoot-controls', {
       this.el.setAttribute('raycaster', 'lineColor', color);
     }, 80);
 
+    // TASK-430: Skip visual effects on Quest for performance
+    if (_isQuestSC) return;
+
     this._spawnLaserTrail(weapon);
     this._spawnMuzzleFlash(weapon);
   },
@@ -262,11 +289,10 @@ AFRAME.registerComponent('shoot-controls', {
     const scene = this.el.sceneEl;
     if (!scene) return;
 
-    const origin = new THREE.Vector3();
-    const direction = new THREE.Vector3();
-    this.el.object3D.getWorldPosition(origin);
-    this.el.object3D.getWorldDirection(direction);
-    direction.negate();
+    // TASK-396: GC-free - reuse pre-allocated vectors
+    this.el.object3D.getWorldPosition(this._origin);
+    this.el.object3D.getWorldDirection(this._direction);
+    this._direction.negate();
 
     // Determine trail endpoint: hit point or max distance
     const raycaster = this.el.components.raycaster;
@@ -275,25 +301,25 @@ AFRAME.registerComponent('shoot-controls', {
       dist = raycaster.intersections[0].distance;
     }
 
-    const end = origin.clone().add(direction.clone().multiplyScalar(dist));
-    const mid = origin.clone().add(end).multiplyScalar(0.5);
+    // Calculate end and mid points (GC-free)
+    this._end.copy(this._direction).multiplyScalar(dist).add(this._origin);
+    this._mid.copy(this._origin).add(this._end).multiplyScalar(0.5);
 
     const color = weapon?.laserColor || '#ff4444';
     const wId = weapon?.id;
     const trailRadius = wId === 'shotgun' ? 0.018 : wId === 'sniper' ? 0.005 : wId === 'railgun' ? 0.025 : wId === 'smg' ? 0.007 : 0.01;
     const trail = document.createElement('a-cylinder');
-    trail.setAttribute('position', `${mid.x} ${mid.y} ${mid.z}`);
+    trail.setAttribute('position', `${this._mid.x} ${this._mid.y} ${this._mid.z}`);
     trail.setAttribute('radius', String(trailRadius));
     trail.setAttribute('height', String(dist));
     trail.setAttribute('material', `shader: flat; color: ${color}; emissive: ${color}; emissiveIntensity: 1; opacity: 0.8; transparent: true`);
     trail.setAttribute('shadow', 'cast: false; receive: false');
 
-    // Orient cylinder along direction
-    const up = new THREE.Vector3(0, 1, 0);
-    const quat = new THREE.Quaternion().setFromUnitVectors(up, direction);
-    const euler = new THREE.Euler().setFromQuaternion(quat);
+    // Orient cylinder along direction (GC-free)
+    this._quat.setFromUnitVectors(this._upVec, this._direction);
+    this._euler.setFromQuaternion(this._quat);
     const deg = (r) => (r * 180) / Math.PI;
-    trail.setAttribute('rotation', `${deg(euler.x)} ${deg(euler.y)} ${deg(euler.z)}`);
+    trail.setAttribute('rotation', `${deg(this._euler.x)} ${deg(this._euler.y)} ${deg(this._euler.z)}`);
 
     scene.appendChild(trail);
 
@@ -325,25 +351,25 @@ AFRAME.registerComponent('shoot-controls', {
     if (now - this._lastFlashTime < 80) return;
     this._lastFlashTime = now;
 
-    const pos = new THREE.Vector3();
-    this.el.object3D.getWorldPosition(pos);
+    // TASK-396: GC-free - reuse pre-allocated vectors
+    this.el.object3D.getWorldPosition(this._muzzlePos);
     const color = weapon?.laserColor || '#ffffff';
 
     // TASK-342: Enhanced GPU particle burst (more particles, cone spread)
     if (window.__spawnGPUBurst) {
-      const dir = new THREE.Vector3();
-      this.el.object3D.getWorldDirection(dir);
-      dir.negate(); // forward direction
-      window.__spawnGPUBurst(scene, pos, {
+      this.el.object3D.getWorldDirection(this._muzzleDir);
+      this._muzzleDir.negate(); // forward direction
+      window.__spawnGPUBurst(scene, this._muzzlePos, {
         count: 10, color, size: 0.03, speed: 4, lifetime: 80,
-        spread: 0.3, direction: dir,
+        spread: 0.3, direction: this._muzzleDir,
       });
       // TASK-365: Smoke puff after shot (delayed slightly)
+      const self = this;
       setTimeout(() => {
-        window.__spawnGPUBurst(scene, pos, {
+        window.__spawnGPUBurst(scene, self._muzzlePos, {
           preset: 'smoke', count: 6, color: '#888888', color2: '#555555',
           size: 0.04, speed: 0.5, lifetime: 300, opacity: 0.25,
-          spread: 0.2, direction: dir,
+          spread: 0.2, direction: self._muzzleDir,
         });
       }, 40);
     }
@@ -378,6 +404,15 @@ AFRAME.registerComponent('shoot-controls', {
   _spawnRicochet(point) {
     const scene = this.el.sceneEl;
     if (!scene || !point) return;
+
+    // TASK-430: Skip all ricochet visuals on Quest for performance
+    if (_isQuestSC) {
+      // Keep only audio feedback
+      if (window.__audioManager) {
+        window.__audioManager.playRicochet({ x: point.x, y: point.y, z: point.z });
+      }
+      return;
+    }
 
     const px = point.x, py = point.y, pz = point.z;
 
@@ -430,6 +465,9 @@ AFRAME.registerComponent('shoot-controls', {
   _impactMarks: [],
 
   _spawnImpactMark(point) {
+    // TASK-430: Skip impact marks on Quest for performance
+    if (_isQuestSC) return;
+
     const scene = this.el.sceneEl;
     if (!scene || !point) return;
     const px = point.x, py = point.y, pz = point.z;

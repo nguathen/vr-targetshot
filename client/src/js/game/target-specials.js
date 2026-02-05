@@ -6,6 +6,10 @@
 import audioManager from '../core/audio-manager.js';
 import { getSettings, remapColor } from './settings-util.js';
 
+// V42: Quest detection - skip torus decorations
+const _isQuestTS = typeof window !== 'undefined' &&
+  (window.__isQuestDevice || /Quest|Android|Mobile/i.test(navigator.userAgent));
+
 // TASK-301: Color-match colors
 const COLOR_MATCH_COLORS = [
   { id: 'red', color: '#ff4444', emoji: '🔴', shape: 'a-icosahedron' },
@@ -104,22 +108,24 @@ export default class TargetSpecials {
       dur: 400, loop: true, dir: 'alternate', easing: 'easeInOutSine',
     });
 
-    // Orange energy ring
-    const ring = document.createElement('a-torus');
-    ring.setAttribute('radius', '0.55');
-    ring.setAttribute('radius-tubular', '0.02');
-    ring.setAttribute('material', 'shader: flat; color: #ff8800; opacity: 0.5; transparent: true');
-    ring.setAttribute('animation__spin', { property: 'rotation', to: '0 360 0', dur: 600, loop: true, easing: 'linear' });
-    el.appendChild(ring);
+    // Orange energy ring (V42: Skip on Quest)
+    if (!_isQuestTS) {
+      const ring = document.createElement('a-torus');
+      ring.setAttribute('radius', '0.55');
+      ring.setAttribute('radius-tubular', '0.02');
+      ring.setAttribute('material', 'shader: flat; color: #ff8800; opacity: 0.5; transparent: true');
+      ring.setAttribute('animation__spin', { property: 'rotation', to: '0 360 0', dur: 600, loop: true, easing: 'linear' });
+      el.appendChild(ring);
 
-    // Second ring perpendicular
-    const ring2 = document.createElement('a-torus');
-    ring2.setAttribute('radius', '0.5');
-    ring2.setAttribute('radius-tubular', '0.015');
-    ring2.setAttribute('rotation', '90 0 0');
-    ring2.setAttribute('material', 'shader: flat; color: #ffaa44; opacity: 0.3; transparent: true');
-    ring2.setAttribute('animation__spin', { property: 'rotation', from: '90 0 0', to: '90 360 0', dur: 800, loop: true, easing: 'linear' });
-    el.appendChild(ring2);
+      // Second ring perpendicular
+      const ring2 = document.createElement('a-torus');
+      ring2.setAttribute('radius', '0.5');
+      ring2.setAttribute('radius-tubular', '0.015');
+      ring2.setAttribute('rotation', '90 0 0');
+      ring2.setAttribute('material', 'shader: flat; color: #ffaa44; opacity: 0.3; transparent: true');
+      ring2.setAttribute('animation__spin', { property: 'rotation', from: '90 0 0', to: '90 360 0', dur: 800, loop: true, easing: 'linear' });
+      el.appendChild(ring2);
+    }
 
     el.setAttribute('target-hit', 'hp: 1; targetType: standard');
     el._targetType = 'standard';
@@ -296,16 +302,18 @@ export default class TargetSpecials {
       el.setAttribute('target-hit', 'hp: 1; targetType: standard');
       el.setAttribute('animation__spawn', { property: 'scale', from: '0 0 0', to: '1 1 1', dur: 300, easing: 'easeOutElastic' });
 
-      // Pulsing glow ring
-      const ring = document.createElement('a-torus');
-      ring.setAttribute('radius', '0.4');
-      ring.setAttribute('radius-tubular', '0.015');
-      ring.setAttribute('material', `shader: flat; color: ${color}; opacity: 0.4; transparent: true`);
-      ring.setAttribute('animation__pulse', {
-        property: 'material.opacity', from: 0.2, to: 0.6,
-        dur: 500, loop: true, dir: 'alternate', easing: 'easeInOutSine',
-      });
-      el.appendChild(ring);
+      // Pulsing glow ring (V42: Skip on Quest)
+      if (!_isQuestTS) {
+        const ring = document.createElement('a-torus');
+        ring.setAttribute('radius', '0.4');
+        ring.setAttribute('radius-tubular', '0.015');
+        ring.setAttribute('material', `shader: flat; color: ${color}; opacity: 0.4; transparent: true`);
+        ring.setAttribute('animation__pulse', {
+          property: 'material.opacity', from: 0.2, to: 0.6,
+          dur: 500, loop: true, dir: 'alternate', easing: 'easeInOutSine',
+        });
+        el.appendChild(ring);
+      }
 
       el._targetType = 'standard';
       el._targetPoints = 30;

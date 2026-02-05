@@ -77,16 +77,17 @@ AFRAME.registerComponent('hand-shoot', {
     // Show HUD indicator
     this._showModeIndicator(mode);
 
-    // Adjust target hitboxes for hand tracking
+    // Adjust target hitboxes for hand tracking (TASK-390: use cached targets)
+    const targets = window.getTargetCache ? window.getTargetCache() : document.querySelectorAll('.target');
     if (mode === 'hand') {
-      document.querySelectorAll('.target').forEach((t) => {
+      targets.forEach((t) => {
         const scale = t.object3D.scale;
         t.dataset.origScale = `${scale.x},${scale.y},${scale.z}`;
         scale.multiplyScalar(this.data.aimAssistMultiplier);
       });
     } else {
       // Restore original scales
-      document.querySelectorAll('.target').forEach((t) => {
+      targets.forEach((t) => {
         if (t.dataset.origScale) {
           const [x, y, z] = t.dataset.origScale.split(',').map(Number);
           t.object3D.scale.set(x, y, z);

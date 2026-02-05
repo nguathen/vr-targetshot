@@ -4,6 +4,11 @@
  *
  * Usage: <a-camera target-indicator>
  */
+
+// TASK-460: Quest detection for throttling
+const _isQuestTI = typeof window !== 'undefined' &&
+  (window.__isQuestDevice || /Quest|Android|Mobile/i.test(navigator.userAgent));
+
 AFRAME.registerComponent('target-indicator', {
   init() {
     this._arrows = [];
@@ -12,7 +17,14 @@ AFRAME.registerComponent('target-indicator', {
     this._camDir = new THREE.Vector3();
     this._camUp = new THREE.Vector3();
     this._targetPos = new THREE.Vector3();
+    // TASK-393: Pre-allocate vectors for GC-free tick()
+    this._toTarget = new THREE.Vector3();
+    this._forward = new THREE.Vector3();
+    this._right = new THREE.Vector3();
+    this._upVec = new THREE.Vector3(0, 1, 0);
     this._audioMgr = null;
+    // TASK-460: Frame counter for Quest throttling
+    this._frameCount = 0;
     // Lazy-load audioManager (ES module)
     import('../core/audio-manager.js').then(m => { this._audioMgr = m.default; }).catch(() => {});
   },
@@ -22,6 +34,9 @@ AFRAME.registerComponent('target-indicator', {
   },
 
   tick() {
+    // TASK-460: Throttle to every 3rd frame on Quest (30 FPS indicator updates)
+    if (_isQuestTI && this._frameCount++ % 3 !== 0) return;
+
     const cam = this.el.object3D;
     if (!cam) return;
 
@@ -35,34 +50,36 @@ AFRAME.registerComponent('target-indicator', {
       this._audioMgr.updateListener(this._camWorldPos, this._camDir, this._camUp);
     }
 
-    const targets = document.querySelectorAll('.target');
+    // TASK-390: Use cached targets instead of querySelectorAll in tick()
+    const targets = window.getTargetCache ? window.getTargetCache() : document.querySelectorAll('.target');
     let idx = 0;
 
     targets.forEach(t => {
       if (!t.object3D) return;
       t.object3D.getWorldPosition(this._targetPos);
 
+      // TASK-393: GC-free - reuse pre-allocated vectors
       // Vector from camera to target
-      const toTarget = this._targetPos.clone().sub(this._camWorldPos);
-      toTarget.y = 0; // project to XZ plane
+      this._toTarget.copy(this._targetPos).sub(this._camWorldPos);
+      this._toTarget.y = 0; // project to XZ plane
 
-      const forward = this._camDir.clone();
-      forward.y = 0;
-      forward.normalize();
+      this._forward.copy(this._camDir);
+      this._forward.y = 0;
+      this._forward.normalize();
 
-      if (toTarget.length() < 0.5) return;
-      toTarget.normalize();
+      if (this._toTarget.length() < 0.5) return;
+      this._toTarget.normalize();
 
       // Dot product: how much in front
-      const dot = forward.dot(toTarget);
+      const dot = this._forward.dot(this._toTarget);
 
       // Only show arrow for targets behind or far to the side (dot < 0.3 = ~73° off center)
       if (dot > 0.3) return;
 
-      // Get angle relative to forward on XZ plane
-      const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
-      const angleX = right.dot(toTarget);  // positive = right
-      const angleY = forward.dot(toTarget); // positive = front
+      // Get angle relative to forward on XZ plane (GC-free)
+      this._right.crossVectors(this._forward, this._upVec).normalize();
+      const angleX = this._right.dot(this._toTarget);  // positive = right
+      const angleY = this._forward.dot(this._toTarget); // positive = front
 
       // Position arrow on a circle at edge of HUD
       const hudRadius = 0.18;

@@ -379,9 +379,22 @@ function _parseMaterialString(matStr) {
   return isFlat ? new THREE.MeshBasicMaterial(params) : new THREE.MeshStandardMaterial(params);
 }
 
+// V38: Quest detection for skipping theme visuals
+const _isQuest = typeof window !== 'undefined' &&
+  (window.__isQuestDevice || /Quest|Android|Mobile/i.test(navigator.userAgent));
+
 function applyTheme(sceneEl, themeId) {
   const theme = THEMES[themeId] || THEMES.cyber;
   const gc = sceneEl.querySelector('#game-content') || sceneEl;
+
+  // V38: Skip ALL theme visuals on Quest - only keep basic sky color
+  if (_isQuest) {
+    console.log('[V38] applyTheme: Quest detected - skipping ALL theme decorations');
+    const sky = sceneEl.querySelector('a-sky');
+    if (sky) sky.setAttribute('color', '#000000'); // Pure black sky
+    document.dispatchEvent(new CustomEvent('theme-changed', { detail: { theme: themeId } }));
+    return; // Skip everything else
+  }
 
   // Sky color
   const sky = sceneEl.querySelector('a-sky');

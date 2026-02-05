@@ -5,8 +5,18 @@
  *
  * Usage: <a-entity weapon-model>
  */
+
+// TASK-461: Quest detection for disabling weapon-model
+const _isQuestWM = typeof window !== 'undefined' &&
+  (window.__isQuestWMDevice || /Quest|Android|Mobile/i.test(navigator.userAgent));
+
 AFRAME.registerComponent('weapon-model', {
   init() {
+    // TASK-461: Disable weapon-model on Quest (5-10 entities per weapon too expensive)
+    if (_isQuestWM) {
+      console.log('[weapon-model] Disabled on Quest for performance');
+      return;
+    }
     this._currentWeapon = null;
     this._container = document.createElement('a-entity');
     this._container.setAttribute('position', '0 -0.02 -0.08');

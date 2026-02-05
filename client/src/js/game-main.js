@@ -144,6 +144,27 @@ function _initOnce() {
     }
   }
 
+  // TASK-414/410: VR mode and Quest detection for CSS performance optimization
+  const sceneEl = document.querySelector('a-scene');
+  if (sceneEl) {
+    // Add .quest-mode on Quest/mobile for CSS simplification (TASK-410, TASK-412)
+    const isMobileGPU = /Quest|Android|Mobile/i.test(navigator.userAgent);
+    if (isMobileGPU) {
+      document.body.classList.add('quest-mode');
+      console.log('[game-main] Quest/mobile detected - enabling CSS optimization');
+    }
+
+    // Toggle .vr-mode on enter/exit VR (TASK-414, TASK-413)
+    sceneEl.addEventListener('enter-vr', () => {
+      document.body.classList.add('vr-mode');
+      console.log('[game-main] Entered VR - hiding CSS overlays for performance');
+    });
+    sceneEl.addEventListener('exit-vr', () => {
+      document.body.classList.remove('vr-mode');
+      console.log('[game-main] Exited VR - restoring CSS overlays');
+    });
+  }
+
   // Track shots for accuracy (VR triggers and flat-screen clicks)
   document.addEventListener('shot-fired', () => {
     if (gameManager.state === GameState.PLAYING) {
@@ -372,6 +393,9 @@ function _initOnce() {
 }
 
 function _showSlowMoOverlay() {
+  // TASK-441: Skip DOM creation on Quest - no element = no computation
+  if (window.__isQuestDevice) return;
+
   let overlay = document.getElementById('slow-mo-overlay');
   if (!overlay) {
     overlay = document.createElement('div');
@@ -384,6 +408,9 @@ function _showSlowMoOverlay() {
 }
 
 function _hideSlowMoOverlay() {
+  // TASK-441: Skip on Quest
+  if (window.__isQuestDevice) return;
+
   const overlay = document.getElementById('slow-mo-overlay');
   if (overlay) overlay.classList.remove('active');
 }
@@ -984,6 +1011,11 @@ const THEME_PARTICLES = {
 };
 
 function _spawnAmbientParticles(sceneEl) {
+  // V40: Skip ALL ambient particles on Quest
+  if (window.__isQuestDevice) {
+    console.log('[V40] _spawnAmbientParticles: Disabled on Quest');
+    return;
+  }
   const palette = THEME_PARTICLES[_selectedTheme] || THEME_PARTICLES.cyber;
   const settings = typeof getSettings === 'function' ? getSettings() : {};
 
@@ -1614,6 +1646,9 @@ function _startAmbientMotion(sceneEl) {
 // === Combo Juice Helpers (TASK-227) ===
 
 function _updateComboVignette(combo) {
+  // TASK-440: Skip DOM creation on Quest - no element = no computation
+  if (window.__isQuestDevice) return;
+
   let vignette = document.getElementById('combo-vignette');
   if (!vignette) {
     vignette = document.createElement('div');

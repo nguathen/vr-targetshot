@@ -6,6 +6,10 @@
 import scoreManager from './score-manager.js';
 import audioManager from '../core/audio-manager.js';
 
+// V42: Quest detection - skip torus decorations
+const _isQuestTHaz = typeof window !== 'undefined' &&
+  (window.__isQuestDevice || /Quest|Android|Mobile/i.test(navigator.userAgent));
+
 export default class TargetHazards {
   constructor(ts) {
     /** @type {import('./target-system.js').default} */
@@ -238,7 +242,7 @@ export default class TargetHazards {
     const ts = this._ts;
     audioManager.playProjectileHit();
     window.__hapticManager?.damageTaken();
-    ts._flashScreen('miss');
+    ts._feedback.flashScreen('miss');
     ts._onPlayerDamage?.('projectile');
 
     const cam = document.getElementById('camera');
@@ -393,13 +397,16 @@ export default class TargetHazards {
       dur: 300, easing: 'easeOutElastic',
     });
 
-    const ring = document.createElement('a-torus');
-    ring.setAttribute('radius', '0.45');
-    ring.setAttribute('radius-tubular', '0.02');
-    ring.setAttribute('material', 'shader: flat; color: #ff6600; opacity: 0.5');
-    ring.setAttribute('rotation', '90 0 0');
-    ring.setAttribute('animation__spin', { property: 'rotation', from: '90 0 0', to: '90 360 0', dur: 500, loop: true, easing: 'linear' });
-    el.appendChild(ring);
+    // V42: Skip torus on Quest
+    if (!_isQuestTHaz) {
+      const ring = document.createElement('a-torus');
+      ring.setAttribute('radius', '0.45');
+      ring.setAttribute('radius-tubular', '0.02');
+      ring.setAttribute('material', 'shader: flat; color: #ff6600; opacity: 0.5');
+      ring.setAttribute('rotation', '90 0 0');
+      ring.setAttribute('animation__spin', { property: 'rotation', from: '90 0 0', to: '90 360 0', dur: 500, loop: true, easing: 'linear' });
+      el.appendChild(ring);
+    }
 
     el.setAttribute('target-hit', 'hp: 1; targetType: charger');
     el._targetType = 'charger';
@@ -486,7 +493,7 @@ export default class TargetHazards {
     const pos = { x: charger.pos.x, y: charger.pos.y, z: charger.pos.z };
     audioManager.playChargerExplode(pos);
     window.__hapticManager?.damageTaken();
-    ts._flashScreen('miss');
+    ts._feedback.flashScreen('miss');
     ts._onPlayerDamage?.('charger');
 
     const scene = ts._container.sceneEl || ts._container.closest('a-scene');
@@ -654,7 +661,7 @@ export default class TargetHazards {
         audioManager.playDangerZoneTick();
         window.__hapticManager?.pulse(0.3, 50);
         ts._onPlayerDamage?.('dangerZone');
-        ts._flashScreen('miss');
+        ts._feedback.flashScreen('miss');
       }
     });
 
@@ -954,7 +961,7 @@ export default class TargetHazards {
     const ts = this._ts;
     audioManager.playLaserHit();
     window.__hapticManager?.damageTaken();
-    ts._flashScreen('miss');
+    ts._feedback.flashScreen('miss');
     ts._onPlayerDamage?.('laser');
     document.dispatchEvent(new CustomEvent('camera-shake', { detail: { intensity: 0.02, duration: 200 } }));
   }

@@ -40,10 +40,30 @@ git diff --stat            # Uncommitted changes
 | Change Type | Section to Update |
 |-------------|-------------------|
 | New API endpoint | Routes |
-| New service | Core Services |
+| New service/manager | Core Services |
+| New A-Frame component | Directory Structure (components/) |
 | New data model | Data Models |
 | New integration | External Integrations |
 | New config | Configuration |
+
+## Performance Gate (BLOCKING - VR/Quest)
+
+| Metric | Target | Hard Limit | Blocker? |
+|--------|--------|------------|----------|
+| **FPS** | 90 | 72 | YES |
+| **Dynamic Lights** | 2 | 4 | YES |
+| **Shadows** | 0 | 1 (justified) | YES |
+| **Active Entities** | 25 | 50 | YES |
+| **Draw Calls** | 50 | 100 | YES |
+
+### Design Review Checklist (MANDATORY)
+
+Before creating game/visual feature tasks:
+- [ ] Lights: max 2-4, NO shadows without justification
+- [ ] Entities: estimated active count < 50
+- [ ] Spawning: uses object pooling for dynamic entities
+- [ ] tick() functions: NO allocations (pre-allocated vectors)
+- [ ] Materials: prefer `shader: flat` for static objects
 
 ## ADR Template (for significant decisions)
 
@@ -69,6 +89,12 @@ git diff --stat            # Uncommitted changes
 ### Acceptance Criteria
 - [ ] Criterion 1
 - [ ] Criterion 2
+
+### Notes
+- Any risks, edge cases, context
+
+### Integration Impact
+- [ ] List OTHER files affected
 ```
 
 ## Handling Escalations
@@ -85,12 +111,20 @@ When /code-check or /test escalates:
 ```
          /tl (Plan → Design → Delegate)
               ↓
+         /pipeline (PRIMARY - auto dev→code-check→test)
+              │
     ┌─────────┼─────────┐
     ↓         ↓         ↓
-  /dev   /code-check  /test
+  /dev   /code-check  /test  (manual - for debugging)
     └─────────┴─────────┘
          Escalate back to /tl
 ```
+
+## Run Pipeline (after delegating tasks)
+
+**Recommended:** Tell user to run `/pipeline` - processes all pending tasks automatically.
+
+**Manual (debugging single task):** `/dev` → `/code-check` → `/test`
 
 ## Rules
 
@@ -99,7 +133,9 @@ When /code-check or /test escalates:
 3. Keep it simple - Best solution is often simplest
 4. Prioritize ruthlessly - Not everything is P0
 5. Communicate clearly - Tasks must be unambiguous
+6. **Research before design** - Verify capabilities before choosing approach
+7. **Scope includes side-effects** - Include all affected files in task scope
+8. **Specify contracts** - Document units, index base, return types in task Notes
 
 ---
 **See also:** `.claude/rules/workflow.md`, `.claude/rules/security.md`, `.claude/rules/performance.md`
-**Context:** `.claude/contexts/research.md` (for exploration phase)

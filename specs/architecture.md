@@ -809,6 +809,50 @@ target-system.js (3040 lines, 65+ methods) và audio-manager.js (1616 lines, 80+
 - Negative: Mixin pattern mất IDE autocomplete cho sub-module methods (acceptable tradeoff)
 - Risk: Circular dependency nếu sub-modules reference nhau → mitigated: sub-modules chỉ reference parent facade qua constructor injection
 
+### ADR-019: V31 Quest Emergency FPS Fix — Aggressive Feature Cuts
+
+**Status:** Accepted
+**Date:** 2026-02-05
+
+**Context:**
+FPS on Quest 2/3 is 40 despite V28-V30 optimizations. Users report unplayable experience. Root cause analysis reveals cumulative overhead from many systems:
+- Shadows (PCF soft = 5-9 texture samples/fragment)
+- Weather particles (100-200 per frame)
+- Arena reactions (animations on every kill)
+- Shockwave entities (4 animations per kill)
+- Adaptive music (8 oscillators)
+- Dissolve shader (Perlin noise per fragment)
+
+**Decision:**
+Implement aggressive feature cuts for Quest/mobile (detected via `navigator.userAgent`):
+1. **Shadows OFF** — Remove `shadow` attribute entirely
+2. **Weather OFF** — Skip all particle spawning
+3. **Arena Reactions OFF** — Skip all reactive animations
+4. **Shockwave OFF** — No ring entities per kill
+5. **Music OFF** — No adaptive music system
+6. **Max Targets 8→4** — Half the active entities
+7. **Particles 8→4** — Half the burst particles
+8. **Dissolve OFF** — Instant removal instead
+9. **Decorative Geometry OFF** — Remove pillars + grid
+
+Detection pattern used everywhere:
+```javascript
+const _isQuest = /Quest|Android|Mobile/i.test(navigator.userAgent);
+```
+
+**Consequences:**
+- Positive: Expected 40-70 FPS improvement → 90+ FPS achievable
+- Positive: Game remains playable (core mechanics intact)
+- Positive: Desktop/PC VR unaffected (full features)
+- Negative: Quest players get visually reduced experience
+- Negative: No music on Quest (silent except SFX)
+- Risk: Some players may expect desktop visuals → mitigated: documented as "Performance Mode"
+
+**Alternatives Considered:**
+1. Gradual quality slider — rejected: too complex, still won't hit 90 FPS
+2. WebGPU migration — rejected: no Quest support
+3. Native app rewrite — rejected: out of scope, defeats WebXR purpose
+
 ### ADR Template
 
 ```markdown

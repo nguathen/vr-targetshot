@@ -56,6 +56,67 @@
     setTimeout(dismiss,8000);
   })();
   </script>
+
+  <!-- V40: Quest Performance Optimization -->
+  <script>
+  (function() {
+    window.__isQuestDevice = /Quest|Android|Mobile/i.test(navigator.userAgent);
+    if (!window.__isQuestDevice) return;
+    console.log('[V40] Quest detected - enabling aggressive optimizations');
+
+    // V40: Aggressive cleanup - run every second for 20 seconds
+    var v40Count = 0;
+    function v40Cleanup() {
+      v40Count++;
+      // Hide and clear environment containers
+      ['distant-env', 'below-void', 'sky-gradient', 'floor-fade', 'ambient-particles-container', 'weather-container'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) {
+          el.setAttribute('visible', 'false');
+          while (el.firstChild) el.removeChild(el.firstChild);
+        }
+      });
+      // Remove ambient particles
+      document.querySelectorAll('.ambient-particle').forEach(function(el) { el.remove(); });
+      // V43: Hide floor-edge-gradient only
+      document.querySelectorAll('.floor-edge-gradient').forEach(function(el) {
+        el.setAttribute('visible', 'false');
+      });
+      // V44: Keep under-glow rings but disable animation (static rings)
+      document.querySelectorAll('.under-glow-ring').forEach(function(el) {
+        el.removeAttribute('animation');
+        el.setAttribute('rotation', '-90 0 0'); // Reset to static
+      });
+      // V44: Remove animated torus EXCEPT under-glow-ring
+      document.querySelectorAll('a-torus:not(.under-glow-ring)').forEach(function(el) {
+        el.remove();
+      });
+      // V44: Keep arena pillars (cylinder + sphere only, torus removed above)
+      // V43: Improved floor - flat shader with subtle emissive glow
+      var floor = document.getElementById('platform-surface');
+      if (floor) {
+        floor.setAttribute('material', 'shader: flat; color: #0a0a1a; emissive: #111133; emissiveIntensity: 0.3');
+      }
+      // V43: Keep floor grid but simplify it (low opacity wireframe)
+      var grid = document.getElementById('floor-grid');
+      if (grid) {
+        var gridPlane = grid.querySelector('a-plane');
+        if (gridPlane) {
+          gridPlane.setAttribute('material', 'shader: flat; color: #1a1a3a; wireframe: true; opacity: 0.08');
+        }
+      }
+      // V43: Dark blue sky instead of pure black (minimal impact)
+      var sky = document.querySelector('a-sky');
+      if (sky) sky.setAttribute('color', '#0a0a1a');
+      if (v40Count === 1) console.log('[V40] Cleanup started');
+    }
+    document.addEventListener('DOMContentLoaded', function() {
+      var iv = setInterval(v40Cleanup, 1000);
+      setTimeout(function() { clearInterval(iv); console.log('[V40] Cleanup done'); }, 20000);
+    });
+  })();
+  </script>
+
   <div id="transition" class="transition"></div>
 
   <!-- Register A-Frame components before scene -->
@@ -75,20 +136,21 @@
   <script src="./js/components/gpu-particles.js"></script>
   <script src="./js/components/dissolve-effect.js"></script>
   <script src="./js/components/hand-shoot.js"></script>
+  <script src="./js/components/fps-counter.js"></script>
 
   <a-scene id="scene" vr-mode-ui="enterVRButton: #enter-vr-btn" shadow="type: pcfsoft; autoUpdate: true"
            bloom-effect="strength: 0.6; radius: 0.4; threshold: 0.7" combo-popup-listener>
     <!-- Player Rig -->
     <a-entity id="player-rig" position="0 0 0">
-      <a-camera id="camera" position="0 1.6 0" wasd-controls-enabled="false" look-controls camera-effects="shakeLevel: medium" target-indicator>
+      <a-camera id="camera" position="0 1.6 0" wasd-controls-enabled="false" look-controls camera-effects="shakeLevel: medium" target-indicator fps-counter="logInterval: 3">
         <!-- Game HUD (hidden until game starts) -->
-        <!-- Crosshair: outer ring + main ring + center dot -->
+        <!-- Crosshair: outer ring + main ring + center dot (TASK-398: solid, small items OK) -->
         <a-ring id="crosshair-outer" position="0 0 -1" radius-inner="0.025" radius-outer="0.027"
-                color="#00ff88" material="shader: flat; opacity: 0.25" visible="false"></a-ring>
+                material="shader: flat; color: #004422; emissive: #00ff88; emissiveIntensity: 0.3" visible="false"></a-ring>
         <a-ring id="crosshair" position="0 0 -1" radius-inner="0.01" radius-outer="0.015"
-                color="#00ff88" material="shader: flat; opacity: 0.8" crosshair-feedback visible="false"></a-ring>
+                color="#00ff88" material="shader: flat" crosshair-feedback visible="false"></a-ring>
         <a-circle id="crosshair-dot" position="0 0 -0.999" radius="0.003"
-                  material="shader: flat; color: #00ff88; opacity: 0.9" visible="false"></a-circle>
+                  material="shader: flat; color: #00ff88" visible="false"></a-circle>
 
         <!-- HUD text elements -->
         <a-text id="hud-score" value="Score: 0" position="-0.45 0.3 -1"
@@ -128,10 +190,10 @@
                 scale="0.25 0.25 0.25" color="#ff4444" font="mozillavr" align="center" visible="false"></a-text>
         <a-cursor id="game-cursor" color="#00ff88" fuse="false" raycaster="objects: .target; far: 100" visible="false"></a-cursor>
 
-        <!-- Boss Health Bar HUD -->
+        <!-- Boss Health Bar HUD (TASK-398: solid) -->
         <a-entity id="hud-boss" visible="false" position="0 -0.25 -1">
-          <a-plane id="boss-bar-bg" width="0.5" height="0.03" color="#330000"
-                   material="shader: flat; opacity: 0.7"></a-plane>
+          <a-plane id="boss-bar-bg" width="0.5" height="0.03" color="#220000"
+                   material="shader: flat"></a-plane>
           <a-plane id="boss-bar-fill" width="0.5" height="0.025" color="#ff3333"
                    material="shader: flat" position="0 0 0.001"></a-plane>
           <a-text id="boss-bar-label" value="BOSS" position="0 0.03 0"
@@ -154,10 +216,10 @@
                   scale="0.2 0.2 0.2" color="#888888" font="mozillavr" align="center"></a-text>
         </a-entity>
 
-        <!-- 3D Quit button HUD (top-right, next to timer) -->
+        <!-- 3D Quit button HUD (TASK-398: solid) -->
         <a-entity id="btn-quit-vr" visible="false" position="0.45 0.38 -1">
-          <a-plane class="target" width="0.14" height="0.06" color="#661a1a"
-                   material="shader: flat; opacity: 0.85"
+          <a-plane class="target" width="0.14" height="0.06" color="#551515"
+                   material="shader: flat"
                    data-action="quit">
             <a-text value="✕ QUIT" align="center" color="#ff6666" width="1.0"
                     position="0 0 0.01"></a-text>
@@ -192,83 +254,81 @@
       </a-entity>
     </a-entity>
 
-    <!-- Shared Environment -->
+    <!-- Shared Environment (TASK-397: 1 ambient + 1 directional for entire scene) -->
     <a-sky color="#0a0a1a"></a-sky>
-    <a-light type="ambient" color="#222244" intensity="0.4"></a-light>
+    <a-light type="ambient" color="#334455" intensity="0.6"></a-light>
+    <a-light type="directional" position="0 5 2" intensity="0.8" color="#aabbff"></a-light>
 
     <!-- ==================== MENU CONTENT ==================== -->
     <a-entity id="menu-content">
       <!-- Floor -->
       <a-plane position="0 0 0" rotation="-90 0 0" width="50" height="50" color="#0d1b2a"></a-plane>
       <a-plane position="0 0.01 0" rotation="-90 0 0" width="20" height="20"
-               material="color: #1b2838; wireframe: true; opacity: 0.3"
+               material="shader: flat; color: #121828; wireframe: true"
                segments-width="20" segments-height="20"></a-plane>
-      <!-- Floor radial glow -->
+      <!-- Floor radial glow - TASK-398: removed transparency, using emissive instead -->
       <a-circle position="0 0.02 -3" rotation="-90 0 0" radius="6"
-                material="shader: flat; color: #0044aa; opacity: 0.04"></a-circle>
+                material="shader: flat; color: #0a0d18"></a-circle>
 
-      <!-- Lighting -->
-      <a-light type="point" position="0 6 -4" intensity="1" color="#4466ff" distance="20"></a-light>
-      <a-light type="point" position="-4 4 -6" intensity="0.5" color="#ff4466" distance="15"></a-light>
-      <a-light type="point" position="4 4 -6" intensity="0.5" color="#44ff66" distance="15"></a-light>
+      <!-- Lighting: Removed 3 point lights (TASK-397). Shared ambient at scene root. -->
 
-      <!-- Panel layers: shadow → glow border → main -->
+      <!-- Panel layers: shadow → glow border → main (TASK-398: solid colors) -->
       <a-plane position="0 1.5 -3.6" width="4.2" height="3.8" color="#050520"
-               material="shader: flat; opacity: 0.95"></a-plane>
-      <a-plane position="0 1.5 -3.52" width="4.05" height="3.65" color="#00d4ff"
-               material="shader: flat; opacity: 0.06"></a-plane>
+               material="shader: flat"></a-plane>
+      <a-plane position="0 1.5 -3.52" width="4.05" height="3.65" color="#061525"
+               material="shader: flat"></a-plane>
       <a-plane position="0 1.5 -3.5" width="4" height="3.6" color="#0a0a2a"
-               material="shader: flat; opacity: 0.92"></a-plane>
-      <!-- Top accent line -->
-      <a-plane position="0 3.25 -3.45" width="3" height="0.005" color="#00d4ff"
-               material="shader: flat; opacity: 0.5"
-               animation="property: material.opacity; from: 0.3; to: 0.8; dur: 2000; loop: true; dir: alternate; easing: easeInOutSine"></a-plane>
+               material="shader: flat"></a-plane>
+      <!-- Top accent line (TASK-398/400: solid + emissive animation instead of opacity) -->
+      <a-plane position="0 3.25 -3.45" width="3" height="0.005"
+               material="shader: flat; color: #00d4ff; emissive: #00d4ff; emissiveIntensity: 0.4"
+               animation="property: material.emissiveIntensity; from: 0.3; to: 0.8; dur: 2000; loop: true; dir: alternate; easing: easeInOutSine"></a-plane>
 
       <!-- Title -->
       <a-text value="Target Shooter" position="0 2.95 -3.4" align="center"
               color="#00d4ff" width="6"></a-text>
 
-      <!-- Player Info with background bar -->
-      <a-plane position="0 2.6 -3.45" width="2.5" height="0.2" color="#1a1a3a"
-               material="shader: flat; opacity: 0.7"></a-plane>
+      <!-- Player Info with background bar (TASK-398: solid) -->
+      <a-plane position="0 2.6 -3.45" width="2.5" height="0.2" color="#12122a"
+               material="shader: flat"></a-plane>
       <a-text id="player-info" value="Lv.1 | 0 Coins" position="0 2.6 -3.4" align="center"
               color="#ffd700" width="3"></a-text>
 
-      <!-- Game Mode Section with decorative lines -->
-      <a-plane position="-1.0 2.25 -3.42" width="0.4" height="0.002" color="#00d4ff"
-               material="shader: flat; opacity: 0.3"></a-plane>
+      <!-- Game Mode Section with decorative lines (TASK-398: solid colors) -->
+      <a-plane position="-1.0 2.25 -3.42" width="0.4" height="0.002"
+               material="shader: flat; color: #004466"></a-plane>
       <a-text value="GAME MODE" position="0 2.25 -3.4" align="center"
               color="#aaaacc" width="2.5"></a-text>
-      <a-plane position="1.0 2.25 -3.42" width="0.4" height="0.002" color="#00d4ff"
-               material="shader: flat; opacity: 0.3"></a-plane>
+      <a-plane position="1.0 2.25 -3.42" width="0.4" height="0.002"
+               material="shader: flat; color: #004466"></a-plane>
       <a-entity id="mode-buttons" position="0 1.95 -3.4"></a-entity>
 
-      <!-- Weapon Section with decorative lines -->
-      <a-plane position="-0.85 1.6 -3.42" width="0.4" height="0.002" color="#00d4ff"
-               material="shader: flat; opacity: 0.3"></a-plane>
+      <!-- Weapon Section with decorative lines (TASK-398: solid colors) -->
+      <a-plane position="-0.85 1.6 -3.42" width="0.4" height="0.002"
+               material="shader: flat; color: #004466"></a-plane>
       <a-text value="WEAPON" position="0 1.6 -3.4" align="center"
               color="#aaaacc" width="2.5"></a-text>
-      <a-plane position="0.85 1.6 -3.42" width="0.4" height="0.002" color="#00d4ff"
-               material="shader: flat; opacity: 0.3"></a-plane>
+      <a-plane position="0.85 1.6 -3.42" width="0.4" height="0.002"
+               material="shader: flat; color: #004466"></a-plane>
       <a-entity id="weapon-buttons" position="0 1.32 -3.4"></a-entity>
 
-      <!-- Theme Section with decorative lines -->
-      <a-plane position="-0.85 0.98 -3.42" width="0.4" height="0.002" color="#00d4ff"
-               material="shader: flat; opacity: 0.3"></a-plane>
+      <!-- Theme Section with decorative lines (TASK-398: solid colors) -->
+      <a-plane position="-0.85 0.98 -3.42" width="0.4" height="0.002"
+               material="shader: flat; color: #004466"></a-plane>
       <a-text value="THEME" position="0 0.98 -3.4" align="center"
               color="#aaaacc" width="2.5"></a-text>
-      <a-plane position="0.85 0.98 -3.42" width="0.4" height="0.002" color="#00d4ff"
-               material="shader: flat; opacity: 0.3"></a-plane>
+      <a-plane position="0.85 0.98 -3.42" width="0.4" height="0.002"
+               material="shader: flat; color: #004466"></a-plane>
       <a-entity id="theme-buttons" position="0 0.7 -3.4"></a-entity>
 
-      <!-- PLAY Button with glow -->
-      <a-plane position="0 0.2 -3.35" width="1.6" height="0.55" color="#00ff88"
-               material="shader: flat; opacity: 0.05"></a-plane>
+      <!-- PLAY Button with glow (TASK-398/400: solid + emissive animation) -->
+      <a-plane position="0 0.2 -3.35" width="1.6" height="0.55"
+               material="shader: flat; color: #0a1a12"></a-plane>
       <a-plane id="btn-play-vr" class="clickable" position="0 0.2 -3.3"
-               width="1.4" height="0.45" color="#006644"
-               material="shader: flat; opacity: 0.9"
+               width="1.4" height="0.45"
+               material="shader: flat; color: #006644; emissive: #00ff88; emissiveIntensity: 0.15"
                data-action="play"
-               animation="property: material.opacity; from: 0.85; to: 1.0; dur: 1200; loop: true; dir: alternate; easing: easeInOutSine">
+               animation="property: material.emissiveIntensity; from: 0.1; to: 0.3; dur: 1200; loop: true; dir: alternate; easing: easeInOutSine">
         <a-text value="PLAY" align="center" color="#00ff88" width="6"
                 position="0 0 0.01"></a-text>
       </a-plane>
@@ -282,17 +342,17 @@
       </a-plane>
       -->
 
-      <!-- SHOP Button (right corner) -->
+      <!-- SHOP Button (right corner) (TASK-398: solid) -->
       <a-plane id="btn-shop-vr" class="clickable" position="1.25 0.2 -3.3"
-               width="0.5" height="0.38" color="#4a3800"
-               material="shader: flat; opacity: 0.9; side: double">
+               width="0.5" height="0.38" color="#3a2c00"
+               material="shader: flat; side: double">
         <a-text value="Shop" align="center" color="#ffd700" width="2.5" position="0 0 0.01"></a-text>
       </a-plane>
 
-      <!-- LEADERBOARD Button (left corner) -->
+      <!-- LEADERBOARD Button (left corner) (TASK-398: solid) -->
       <a-plane id="btn-leaderboard-vr" class="clickable" position="-1.25 0.2 -3.3"
-               width="0.5" height="0.38" color="#1a2a4a"
-               material="shader: flat; opacity: 0.9; side: double">
+               width="0.5" height="0.38" color="#142238"
+               material="shader: flat; side: double">
         <a-text value="🏆 Rank" align="center" color="#00d4ff" width="2.5" position="0 0 0.01"></a-text>
       </a-plane>
 
@@ -308,7 +368,7 @@
       <a-sphere position="5 3 -10" radius="0.3" material="color: #a855f7; shader: flat"
                 animation="property: position; to: 5 3.5 -10; dur: 2200; easing: easeInOutSine; loop: true; dir: alternate"></a-sphere>
       <a-torus position="0 4.5 -12" radius="1.5" radius-tubular="0.03"
-               material="color: #00d4ff; shader: flat; opacity: 0.3"
+               material="shader: flat; color: #004466; emissive: #00d4ff; emissiveIntensity: 0.3"
                animation="property: rotation; to: 360 360 0; dur: 10000; easing: linear; loop: true"></a-torus>
     </a-entity>
 
@@ -317,22 +377,19 @@
       <!-- Floor -->
       <a-plane position="0 0 0" rotation="-90 0 0" width="50" height="50" color="#0d1b2a"></a-plane>
 
-      <!-- Lighting -->
-      <a-light type="point" position="0 6 -4" intensity="1" color="#ffd700" distance="20"></a-light>
-      <a-light type="point" position="-4 4 -6" intensity="0.5" color="#44ff66" distance="15"></a-light>
-      <a-light type="point" position="4 4 -6" intensity="0.5" color="#ff4466" distance="15"></a-light>
+      <!-- Lighting: Removed 3 point lights (TASK-397). Shared ambient at scene root. -->
 
-      <!-- Panel layers: shadow → gold glow → main -->
+      <!-- Panel layers: shadow → gold glow → main (TASK-398: solid colors) -->
       <a-plane position="0 1.6 -3.6" width="4.4" height="3.4" color="#050520"
-               material="shader: flat; opacity: 0.95"></a-plane>
-      <a-plane position="0 1.6 -3.52" width="4.25" height="3.25" color="#ffd700"
-               material="shader: flat; opacity: 0.06"></a-plane>
+               material="shader: flat"></a-plane>
+      <a-plane position="0 1.6 -3.52" width="4.25" height="3.25" color="#1a1408"
+               material="shader: flat"></a-plane>
       <a-plane position="0 1.6 -3.5" width="4.2" height="3.2" color="#0a0a2a"
-               material="shader: flat; opacity: 0.92"></a-plane>
-      <!-- Top accent line (gold) -->
-      <a-plane position="0 3.15 -3.45" width="3" height="0.005" color="#ffd700"
-               material="shader: flat; opacity: 0.5"
-               animation="property: material.opacity; from: 0.3; to: 0.8; dur: 2000; loop: true; dir: alternate; easing: easeInOutSine"></a-plane>
+               material="shader: flat"></a-plane>
+      <!-- Top accent line (gold) (TASK-400: emissive animation) -->
+      <a-plane position="0 3.15 -3.45" width="3" height="0.005"
+               material="shader: flat; color: #ffd700; emissive: #ffd700; emissiveIntensity: 0.4"
+               animation="property: material.emissiveIntensity; from: 0.3; to: 0.8; dur: 2000; loop: true; dir: alternate; easing: easeInOutSine"></a-plane>
 
       <!-- Title with glow -->
       <a-text value="SHOP" position="0 2.85 -3.42" align="center"
@@ -340,21 +397,21 @@
       <a-text value="SHOP" position="0 2.85 -3.4" align="center"
               color="#ffd700" width="5"></a-text>
 
-      <!-- Balance with background bar -->
-      <a-plane position="0 2.55 -3.45" width="2.5" height="0.2" color="#1a1a3a"
-               material="shader: flat; opacity: 0.7"></a-plane>
+      <!-- Balance with background bar (TASK-398: solid) -->
+      <a-plane position="0 2.55 -3.45" width="2.5" height="0.2" color="#12122a"
+               material="shader: flat"></a-plane>
       <a-text id="shop-balance" value="Coins: 0" position="0 2.55 -3.4" align="center"
               color="#00d4ff" width="3"></a-text>
 
       <!-- Product cards container -->
       <a-entity id="shop-cards" position="0 1.5 -3.4"></a-entity>
 
-      <!-- Back button with glow -->
-      <a-plane position="0 0.25 -3.35" width="1.8" height="0.45" color="#aaaacc"
-               material="shader: flat; opacity: 0.04"></a-plane>
+      <!-- Back button (TASK-398: solid) -->
+      <a-plane position="0 0.25 -3.35" width="1.8" height="0.45" color="#0a0a14"
+               material="shader: flat"></a-plane>
       <a-plane id="btn-shop-back" class="clickable" position="0 0.25 -3.3"
-               width="1.65" height="0.35" color="#333355"
-               material="shader: flat; opacity: 0.9">
+               width="1.65" height="0.35" color="#282844"
+               material="shader: flat">
         <a-text value="← BACK" align="center" color="#aaaacc" width="4"
                 position="0 0 0.01"></a-text>
       </a-plane>
@@ -365,18 +422,15 @@
       <!-- Floor -->
       <a-plane position="0 0 0" rotation="-90 0 0" width="50" height="50" color="#0d1b2a"></a-plane>
 
-      <!-- Lighting -->
-      <a-light type="point" position="0 6 -4" intensity="1" color="#00d4ff" distance="20"></a-light>
-      <a-light type="point" position="-3 4 -6" intensity="0.5" color="#4466ff" distance="15"></a-light>
-      <a-light type="point" position="3 4 -6" intensity="0.5" color="#44ffaa" distance="15"></a-light>
+      <!-- Lighting: Removed 3 point lights (TASK-397). Shared ambient at scene root. -->
 
-      <!-- Panel layers -->
+      <!-- Panel layers (TASK-398: solid colors) -->
       <a-plane position="0 1.6 -3.6" width="4.4" height="3.4" color="#050520"
-               material="shader: flat; opacity: 0.95"></a-plane>
-      <a-plane position="0 1.6 -3.52" width="4.25" height="3.25" color="#00d4ff"
-               material="shader: flat; opacity: 0.06"></a-plane>
+               material="shader: flat"></a-plane>
+      <a-plane position="0 1.6 -3.52" width="4.25" height="3.25" color="#061525"
+               material="shader: flat"></a-plane>
       <a-plane position="0 1.6 -3.5" width="4.2" height="3.2" color="#0a0a2a"
-               material="shader: flat; opacity: 0.92"></a-plane>
+               material="shader: flat"></a-plane>
 
       <!-- Title -->
       <a-text value="🏆 LEADERBOARD" position="0 2.85 -3.42" align="center"
@@ -398,12 +452,12 @@
       <a-text id="lb-loading" value="Loading..." position="0 1.5 -3.4" align="center"
               color="#555" width="2" visible="true"></a-text>
 
-      <!-- Back button -->
-      <a-plane position="0 0.25 -3.35" width="1.8" height="0.45" color="#aaaacc"
-               material="shader: flat; opacity: 0.04"></a-plane>
+      <!-- Back button (TASK-398: solid) -->
+      <a-plane position="0 0.25 -3.35" width="1.8" height="0.45" color="#0a0a14"
+               material="shader: flat"></a-plane>
       <a-plane id="btn-lb-back" class="clickable" position="0 0.25 -3.3"
-               width="1.65" height="0.35" color="#333355"
-               material="shader: flat; opacity: 0.9">
+               width="1.65" height="0.35" color="#282844"
+               material="shader: flat">
         <a-text value="← BACK" align="center" color="#aaaacc" width="4"
                 position="0 0 0.01"></a-text>
       </a-plane>
@@ -420,119 +474,115 @@
       <a-box id="platform-slab" position="0 -0.2 0" width="32" height="0.3" depth="32"
              material="color: #0a0a22; metalness: 0.9; roughness: 0.2"></a-box>
 
-      <!-- Grid overlay -->
+      <!-- Grid overlay (TASK-398: solid wireframe color) -->
       <a-entity id="floor-grid" position="0 0.01 0" rotation="-90 0 0">
-        <a-plane width="30" height="30" material="color: #1a1a4e; wireframe: true; wireframeLinewidth: 1; opacity: 0.3"
+        <a-plane width="30" height="30" material="shader: flat; color: #0d0d2a; wireframe: true; wireframeLinewidth: 1"
                  segments-width="30" segments-height="30"></a-plane>
       </a-entity>
 
-      <!-- Platform edge glow (4 sides) -->
+      <!-- Platform edge glow (4 sides) (TASK-398/400: solid + emissive animation) -->
       <a-plane class="platform-edge" position="0 0.02 -16" width="32" height="0.06"
-               material="shader: flat; color: #0088ff; emissive: #0088ff; emissiveIntensity: 1; opacity: 0.5"
-               animation="property: material.opacity; from: 0.3; to: 0.6; dur: 2000; loop: true; dir: alternate"></a-plane>
+               material="shader: flat; color: #0088ff; emissive: #0088ff; emissiveIntensity: 0.5"
+               animation="property: material.emissiveIntensity; from: 0.3; to: 0.8; dur: 2000; loop: true; dir: alternate"></a-plane>
       <a-plane class="platform-edge" position="0 0.02 16" width="32" height="0.06"
-               material="shader: flat; color: #0088ff; emissive: #0088ff; emissiveIntensity: 1; opacity: 0.5"
-               animation="property: material.opacity; from: 0.3; to: 0.6; dur: 2000; loop: true; dir: alternate"></a-plane>
+               material="shader: flat; color: #0088ff; emissive: #0088ff; emissiveIntensity: 0.5"
+               animation="property: material.emissiveIntensity; from: 0.3; to: 0.8; dur: 2000; loop: true; dir: alternate"></a-plane>
       <a-plane class="platform-edge" position="-16 0.02 0" rotation="0 90 0" width="32" height="0.06"
-               material="shader: flat; color: #0088ff; emissive: #0088ff; emissiveIntensity: 1; opacity: 0.5"
-               animation="property: material.opacity; from: 0.3; to: 0.6; dur: 2000; loop: true; dir: alternate"></a-plane>
+               material="shader: flat; color: #0088ff; emissive: #0088ff; emissiveIntensity: 0.5"
+               animation="property: material.emissiveIntensity; from: 0.3; to: 0.8; dur: 2000; loop: true; dir: alternate"></a-plane>
       <a-plane class="platform-edge" position="16 0.02 0" rotation="0 90 0" width="32" height="0.06"
-               material="shader: flat; color: #0088ff; emissive: #0088ff; emissiveIntensity: 1; opacity: 0.5"
-               animation="property: material.opacity; from: 0.3; to: 0.6; dur: 2000; loop: true; dir: alternate"></a-plane>
+               material="shader: flat; color: #0088ff; emissive: #0088ff; emissiveIntensity: 0.5"
+               animation="property: material.emissiveIntensity; from: 0.3; to: 0.8; dur: 2000; loop: true; dir: alternate"></a-plane>
 
-      <!-- Under-glow (beneath platform) -->
-      <a-light class="under-glow-light" type="point" position="0 -2 0" color="#0088ff" intensity="0.4" distance="15"></a-light>
+      <!-- Under-glow (beneath platform) - TASK-397/398: Removed point light, solid emissive torus -->
       <a-torus class="under-glow-ring" position="0 -0.5 0" rotation="-90 0 0" radius="10" radius-tubular="0.04"
-               material="color: #0088ff; emissive: #0088ff; emissiveIntensity: 1; opacity: 0.2"
+               material="shader: flat; color: #002244; emissive: #0088ff; emissiveIntensity: 0.4"
                animation="property: rotation; from: -90 0 0; to: -90 0 360; dur: 25000; easing: linear; loop: true"></a-torus>
       <a-torus class="under-glow-ring" position="0 -0.4 0" rotation="-90 0 0" radius="6" radius-tubular="0.03"
-               material="color: #00d4ff; emissive: #00d4ff; emissiveIntensity: 0.8; opacity: 0.15"
+               material="shader: flat; color: #002244; emissive: #00d4ff; emissiveIntensity: 0.3"
                animation="property: rotation; from: -90 0 0; to: -90 0 -360; dur: 18000; easing: linear; loop: true"></a-torus>
 
-      <!-- Floor glow rings (on platform surface) -->
+      <!-- Floor glow rings (on platform surface) (TASK-398: solid emissive) -->
       <a-torus position="0 0.03 0" rotation="-90 0 0" radius="8" radius-tubular="0.03"
-               material="color: #00d4ff; emissive: #00d4ff; emissiveIntensity: 0.8; opacity: 0.2"
+               material="shader: flat; color: #002244; emissive: #00d4ff; emissiveIntensity: 0.5"
                animation="property: rotation; from: -90 0 0; to: -90 0 360; dur: 20000; easing: linear; loop: true"></a-torus>
       <a-torus position="0 0.03 0" rotation="-90 0 0" radius="4" radius-tubular="0.02"
-               material="color: #ff44aa; emissive: #ff44aa; emissiveIntensity: 0.6; opacity: 0.15"
+               material="shader: flat; color: #220022; emissive: #ff44aa; emissiveIntensity: 0.4"
                animation="property: rotation; from: -90 0 0; to: -90 0 -360; dur: 15000; easing: linear; loop: true"></a-torus>
 
-      <!-- === ENERGY BARRIERS (soft, semi-transparent — replace solid walls) === -->
+      <!-- === ENERGY BARRIERS (TASK-398/400: nearly invisible solid + emissive pulse) === -->
       <a-plane class="arena-barrier" position="0 2 -15" width="30" height="5"
-               material="shader: flat; color: #0044aa; opacity: 0.04; transparent: true; side: double"
-               animation="property: material.opacity; from: 0.01; to: 0.025; dur: 3000; loop: true; dir: alternate; easing: easeInOutSine"></a-plane>
+               material="shader: flat; color: #010108; emissive: #0044aa; emissiveIntensity: 0.02; side: double"
+               animation="property: material.emissiveIntensity; from: 0.01; to: 0.04; dur: 3000; loop: true; dir: alternate; easing: easeInOutSine"></a-plane>
       <a-plane class="arena-barrier" position="-15 2 0" rotation="0 90 0" width="30" height="5"
-               material="shader: flat; color: #0044aa; opacity: 0.04; transparent: true; side: double"
-               animation="property: material.opacity; from: 0.01; to: 0.025; dur: 3000; loop: true; dir: alternate; easing: easeInOutSine"></a-plane>
+               material="shader: flat; color: #010108; emissive: #0044aa; emissiveIntensity: 0.02; side: double"
+               animation="property: material.emissiveIntensity; from: 0.01; to: 0.04; dur: 3000; loop: true; dir: alternate; easing: easeInOutSine"></a-plane>
       <a-plane class="arena-barrier" position="15 2 0" rotation="0 90 0" width="30" height="5"
-               material="shader: flat; color: #0044aa; opacity: 0.04; transparent: true; side: double"
-               animation="property: material.opacity; from: 0.01; to: 0.025; dur: 3000; loop: true; dir: alternate; easing: easeInOutSine"></a-plane>
+               material="shader: flat; color: #010108; emissive: #0044aa; emissiveIntensity: 0.02; side: double"
+               animation="property: material.emissiveIntensity; from: 0.01; to: 0.04; dur: 3000; loop: true; dir: alternate; easing: easeInOutSine"></a-plane>
       <a-plane class="arena-barrier" position="0 2 15" width="30" height="5"
-               material="shader: flat; color: #0044aa; opacity: 0.04; transparent: true; side: double"
-               animation="property: material.opacity; from: 0.01; to: 0.025; dur: 3000; loop: true; dir: alternate; easing: easeInOutSine"></a-plane>
+               material="shader: flat; color: #010108; emissive: #0044aa; emissiveIntensity: 0.02; side: double"
+               animation="property: material.emissiveIntensity; from: 0.01; to: 0.04; dur: 3000; loop: true; dir: alternate; easing: easeInOutSine"></a-plane>
 
-      <!-- Barrier base glow lines -->
+      <!-- Barrier base glow lines (TASK-398: solid emissive) -->
       <a-plane class="wall-base-glow" position="0 0.05 -15" width="30" height="0.04"
-               material="shader: flat; color: #0088ff; emissive: #0088ff; emissiveIntensity: 1; opacity: 0.5"></a-plane>
+               material="shader: flat; color: #0088ff; emissive: #0088ff; emissiveIntensity: 0.6"></a-plane>
       <a-plane class="wall-base-glow" position="0 0.05 15" width="30" height="0.04"
-               material="shader: flat; color: #0088ff; emissive: #0088ff; emissiveIntensity: 1; opacity: 0.5"></a-plane>
+               material="shader: flat; color: #0088ff; emissive: #0088ff; emissiveIntensity: 0.6"></a-plane>
       <a-plane class="wall-base-glow" position="-15 0.05 0" rotation="0 90 0" width="30" height="0.04"
-               material="shader: flat; color: #0088ff; emissive: #0088ff; emissiveIntensity: 1; opacity: 0.5"></a-plane>
+               material="shader: flat; color: #0088ff; emissive: #0088ff; emissiveIntensity: 0.6"></a-plane>
       <a-plane class="wall-base-glow" position="15 0.05 0" rotation="0 90 0" width="30" height="0.04"
-               material="shader: flat; color: #0088ff; emissive: #0088ff; emissiveIntensity: 1; opacity: 0.5"></a-plane>
+               material="shader: flat; color: #0088ff; emissive: #0088ff; emissiveIntensity: 0.6"></a-plane>
 
-      <!-- Corner glow lines -->
+      <!-- Corner glow lines (TASK-398: solid emissive) -->
       <a-cylinder class="wall-corner-glow" position="-15 2.5 -15" radius="0.025" height="5"
-                  material="color: #0088ff; emissive: #0088ff; emissiveIntensity: 1; opacity: 0.4"></a-cylinder>
+                  material="shader: flat; color: #0088ff; emissive: #0088ff; emissiveIntensity: 0.5"></a-cylinder>
       <a-cylinder class="wall-corner-glow" position="15 2.5 -15" radius="0.025" height="5"
-                  material="color: #0088ff; emissive: #0088ff; emissiveIntensity: 1; opacity: 0.4"></a-cylinder>
+                  material="shader: flat; color: #0088ff; emissive: #0088ff; emissiveIntensity: 0.5"></a-cylinder>
       <a-cylinder class="wall-corner-glow" position="-15 2.5 15" radius="0.025" height="5"
-                  material="color: #0088ff; emissive: #0088ff; emissiveIntensity: 1; opacity: 0.4"></a-cylinder>
+                  material="shader: flat; color: #0088ff; emissive: #0088ff; emissiveIntensity: 0.5"></a-cylinder>
       <a-cylinder class="wall-corner-glow" position="15 2.5 15" radius="0.025" height="5"
-                  material="color: #0088ff; emissive: #0088ff; emissiveIntensity: 1; opacity: 0.4"></a-cylinder>
+                  material="shader: flat; color: #0088ff; emissive: #0088ff; emissiveIntensity: 0.5"></a-cylinder>
 
-      <!-- === LIGHTING (updated by applyTheme) === -->
-      <a-light type="ambient" color="#222244" intensity="0.4"></a-light>
-      <a-light type="point" position="0 10 0" intensity="1.2" color="#4466ff" distance="40"></a-light>
-      <a-light type="point" position="-8 6 -8" intensity="0.6" color="#ff4444" distance="25"></a-light>
-      <a-light type="point" position="8 6 -8" intensity="0.6" color="#44ff44" distance="25"></a-light>
-      <a-light type="point" position="0 4 8" intensity="0.4" color="#ff88ff" distance="20"></a-light>
+      <!-- === LIGHTING (TASK-397: Reduced from 5 to 2 lights) === -->
+      <a-light type="ambient" color="#334466" intensity="0.6"></a-light>
+      <a-light type="directional" position="1 2 1" intensity="0.9" color="#aabbff"></a-light>
 
-      <!-- === PILLARS (themed by applyTheme) === -->
+      <!-- === PILLARS (TASK-398: solid emissive torus) === -->
       <a-entity class="arena-pillar" position="-14 0 -14">
         <a-cylinder position="0 2 0" radius="0.3" height="4"
                     material="color: #1a1a4e; metalness: 0.9; roughness: 0.2" shadow="cast: true"></a-cylinder>
         <a-torus position="0 0.1 0" rotation="-90 0 0" radius="0.6" radius-tubular="0.015"
-                 material="color: #00d4ff; emissive: #00d4ff; emissiveIntensity: 0.8; opacity: 0.3"></a-torus>
+                 material="shader: flat; color: #003344; emissive: #00d4ff; emissiveIntensity: 0.4"></a-torus>
         <a-sphere position="0 4.2 0" radius="0.18"
-                  material="color: #4466ff; emissive: #4466ff; emissiveIntensity: 1.0"
+                  material="shader: flat; color: #4466ff; emissive: #4466ff; emissiveIntensity: 1.0"
                   animation="property: material.emissiveIntensity; from: 0.5; to: 1.2; dur: 2000; loop: true; dir: alternate; easing: easeInOutSine"></a-sphere>
       </a-entity>
       <a-entity class="arena-pillar" position="14 0 -14">
         <a-cylinder position="0 2 0" radius="0.3" height="4"
                     material="color: #1a1a4e; metalness: 0.9; roughness: 0.2" shadow="cast: true"></a-cylinder>
         <a-torus position="0 0.1 0" rotation="-90 0 0" radius="0.6" radius-tubular="0.015"
-                 material="color: #00d4ff; emissive: #00d4ff; emissiveIntensity: 0.8; opacity: 0.3"></a-torus>
+                 material="shader: flat; color: #003344; emissive: #00d4ff; emissiveIntensity: 0.4"></a-torus>
         <a-sphere position="0 4.2 0" radius="0.18"
-                  material="color: #44ff44; emissive: #44ff44; emissiveIntensity: 1.0"
+                  material="shader: flat; color: #44ff44; emissive: #44ff44; emissiveIntensity: 1.0"
                   animation="property: material.emissiveIntensity; from: 0.5; to: 1.2; dur: 2200; loop: true; dir: alternate; easing: easeInOutSine"></a-sphere>
       </a-entity>
       <a-entity class="arena-pillar" position="-14 0 14">
         <a-cylinder position="0 2 0" radius="0.3" height="4"
                     material="color: #1a1a4e; metalness: 0.9; roughness: 0.2" shadow="cast: true"></a-cylinder>
         <a-torus position="0 0.1 0" rotation="-90 0 0" radius="0.6" radius-tubular="0.015"
-                 material="color: #ff44aa; emissive: #ff44aa; emissiveIntensity: 0.8; opacity: 0.3"></a-torus>
+                 material="shader: flat; color: #330022; emissive: #ff44aa; emissiveIntensity: 0.4"></a-torus>
         <a-sphere position="0 4.2 0" radius="0.18"
-                  material="color: #ff4444; emissive: #ff4444; emissiveIntensity: 1.0"
+                  material="shader: flat; color: #ff4444; emissive: #ff4444; emissiveIntensity: 1.0"
                   animation="property: material.emissiveIntensity; from: 0.5; to: 1.2; dur: 1800; loop: true; dir: alternate; easing: easeInOutSine"></a-sphere>
       </a-entity>
       <a-entity class="arena-pillar" position="14 0 14">
         <a-cylinder position="0 2 0" radius="0.3" height="4"
                     material="color: #1a1a4e; metalness: 0.9; roughness: 0.2" shadow="cast: true"></a-cylinder>
         <a-torus position="0 0.1 0" rotation="-90 0 0" radius="0.6" radius-tubular="0.015"
-                 material="color: #ff44aa; emissive: #ff44aa; emissiveIntensity: 0.8; opacity: 0.3"></a-torus>
+                 material="shader: flat; color: #330022; emissive: #ff44aa; emissiveIntensity: 0.4"></a-torus>
         <a-sphere position="0 4.2 0" radius="0.18"
-                  material="color: #ff88ff; emissive: #ff88ff; emissiveIntensity: 1.0"
+                  material="shader: flat; color: #ff88ff; emissive: #ff88ff; emissiveIntensity: 1.0"
                   animation="property: material.emissiveIntensity; from: 0.5; to: 1.2; dur: 2400; loop: true; dir: alternate; easing: easeInOutSine"></a-sphere>
       </a-entity>
 
@@ -545,19 +595,19 @@
       <!-- Ambient particles (updated by applyTheme) -->
       <a-entity id="ambient-particles-container"></a-entity>
 
-      <!-- Teleport pads -->
+      <!-- Teleport pads (TASK-398/400: solid + emissive animation) -->
       <a-circle teleport-pad="target: 0 0 -8" position="0 0.05 -8" rotation="-90 0 0" radius="0.8"
-                material="shader: flat; color: #00d4ff; opacity: 0.25; transparent: true"
-                animation="property: material.opacity; from: 0.15; to: 0.35; dur: 1500; loop: true; dir: alternate"></a-circle>
+                material="shader: flat; color: #002233; emissive: #00d4ff; emissiveIntensity: 0.25"
+                animation="property: material.emissiveIntensity; from: 0.15; to: 0.4; dur: 1500; loop: true; dir: alternate"></a-circle>
       <a-circle teleport-pad="target: 0 0 8" position="0 0.05 8" rotation="-90 0 0" radius="0.8"
-                material="shader: flat; color: #00d4ff; opacity: 0.25; transparent: true"
-                animation="property: material.opacity; from: 0.15; to: 0.35; dur: 1500; loop: true; dir: alternate"></a-circle>
+                material="shader: flat; color: #002233; emissive: #00d4ff; emissiveIntensity: 0.25"
+                animation="property: material.emissiveIntensity; from: 0.15; to: 0.4; dur: 1500; loop: true; dir: alternate"></a-circle>
       <a-circle teleport-pad="target: -8 0 0" position="-8 0.05 0" rotation="-90 0 0" radius="0.8"
-                material="shader: flat; color: #00d4ff; opacity: 0.25; transparent: true"
-                animation="property: material.opacity; from: 0.15; to: 0.35; dur: 1500; loop: true; dir: alternate"></a-circle>
+                material="shader: flat; color: #002233; emissive: #00d4ff; emissiveIntensity: 0.25"
+                animation="property: material.emissiveIntensity; from: 0.15; to: 0.4; dur: 1500; loop: true; dir: alternate"></a-circle>
       <a-circle teleport-pad="target: 8 0 0" position="8 0.05 0" rotation="-90 0 0" radius="0.8"
-                material="shader: flat; color: #00d4ff; opacity: 0.25; transparent: true"
-                animation="property: material.opacity; from: 0.15; to: 0.35; dur: 1500; loop: true; dir: alternate"></a-circle>
+                material="shader: flat; color: #002233; emissive: #00d4ff; emissiveIntensity: 0.25"
+                animation="property: material.emissiveIntensity; from: 0.15; to: 0.4; dur: 1500; loop: true; dir: alternate"></a-circle>
 
       <!-- Target container -->
       <a-entity id="target-container"></a-entity>

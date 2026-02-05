@@ -1,13 +1,129 @@
 # Performance Rules
 
-## Response Time Targets
+## VR Frame Rate Targets
+
+| Platform | Target | Minimum | Refresh Rate |
+|----------|--------|---------|--------------|
+| Quest 2/3 | **80 fps** | 60 fps | 72/90/120 Hz |
+| Desktop VR | 90 fps | 72 fps | 90 Hz |
+| Desktop flat | 60 fps | 30 fps | 60 Hz |
+
+> **Design for 80+ FPS** on Quest ensures smooth experience at 90Hz default refresh rate.
+
+## WebXR/Three.js Budgets
+
+| Resource | Budget | Notes |
+|----------|--------|-------|
+| Draw calls | <100 per frame | Batch static geometry, target: 50 |
+| Triangles | <300K visible | Use LOD for complex models |
+| Textures | <50MB total | Compress, use atlases |
+| Dynamic lights | ≤4 | Prefer 2, bake static lighting |
+| Shadow-casting lights | 1 | Directional only |
+| Physics bodies | <50 active | Disable distant objects |
+
+## GC-Free Patterns (CRITICAL for 90 FPS)
+
+Every frame, V8 checks for garbage. Allocations in `tick()` cause GC spikes → frame drops.
+
+### BAD: Allocations in tick()
+
+```javascript
+tick: function(time, delta) {
+  var direction = new THREE.Vector3();  // GC every frame!
+  this.positionHistory.push({           // Object every frame!
+    position: currentPos.clone(),
+    time: performance.now()
+  });
+}
+```
+
+### GOOD: Pre-allocated + Circular Buffer
+
+```javascript
+init: function() {
+  // Pre-allocate at init (runs once)
+  this._direction = new THREE.Vector3();
+
+  // Circular buffer for history
+  this.positionHistory = [];
+  for (var i = 0; i < 5; i++) {
+    this.positionHistory.push({ position: new THREE.Vector3(), time: 0 });
+  }
+  this.historyIndex = 0;
+},
+
+tick: function(time, delta) {
+  // Reuse pre-allocated vector
+  this._direction.set(1, 0, 0);
+
+  // Reuse buffer entry with .copy() instead of .clone()
+  var entry = this.positionHistory[this.historyIndex];
+  entry.position.copy(currentPos);  // No allocation!
+  entry.time = performance.now();
+  this.historyIndex = (this.historyIndex + 1) % 5;
+}
+```
+
+### GOOD: Cached DOM Queries
+
+```javascript
+// Module scope - shared cache
+var _hittableCache = new Set();
+
+init: function() {
+  _hittableCache.add(this.el);
+},
+remove: function() {
+  _hittableCache.delete(this.el);
+}
+
+tick: function() {
+  // BAD: document.querySelectorAll('[hittable]')
+  // GOOD: _hittableCache.forEach()
+  _hittableCache.forEach(function(el) { ... });
+}
+```
+
+## A-Frame Performance Checklist
+
+- [ ] No allocations in tick() - pre-allocated vectors
+- [ ] Object pooling for spawned entities
+- [ ] Three.js objects disposed in remove()
+- [ ] Event listeners cleaned up in remove()
+- [ ] Frustum culling enabled (default)
+- [ ] LOD for complex models
+
+## Quest Renderer Settings
+
+```html
+<a-scene
+  renderer="antialias: false; colorManagement: true; physicallyCorrectLights: false"
+>
+```
+
+| Setting | Quest Value | Reason |
+|---------|-------------|--------|
+| `antialias` | `false` | MSAA expensive on mobile GPU |
+| `pixelRatio` | `1.0` | Native resolution |
+| `physicallyCorrectLights` | `false` | Simpler light calculations |
+
+## Anti-Patterns
+
+| Issue | Solution |
+|-------|----------|
+| Creating entities in game loop | Pre-spawn, use pool |
+| New materials per entity | Share materials |
+| Unbounded particle systems | Set maxParticles, auto-dispose |
+| No LOD on detailed models | Add LOD component |
+| querySelectorAll in tick | Cache element references |
+
+## Response Time Targets (API)
 
 | Operation | Target | Max Acceptable |
 |-----------|--------|----------------|
 | API endpoint | <100ms | <500ms |
 | Database query | <50ms | <200ms |
 | Page load | <1s | <3s |
-| Background job | <30s | <60s |
 
 ## Algorithm Complexity
 
@@ -26,128 +142,40 @@
 | Triple nested | O(n³) | Redesign algorithm |
 | Recursive without memo | Exponential | Add memoization |
 
-## Database Performance
-
-### Query Optimization
-
-```python
-# BAD: N+1 query
-for user in users:
-    orders = get_orders(user.id)  # N queries!
-
-# GOOD: Batch query
-user_ids = [u.id for u in users]
-orders = get_orders_batch(user_ids)  # 1 query
-```
-
-### Index Guidelines
-- ✅ Index columns used in WHERE
-- ✅ Index columns used in JOIN
-- ✅ Index columns used in ORDER BY
-- ❌ Don't over-index (write penalty)
-
-### Query Anti-Patterns
-- ❌ SELECT * (fetch only needed columns)
-- ❌ No LIMIT on large tables
-- ❌ LIKE '%prefix' (can't use index)
-- ❌ Functions in WHERE clause
-
 ## Memory Management
 
-### Python Specific
-
-```python
-# BAD: String concatenation in loop
-result = ""
-for item in items:
-    result += str(item)  # Creates new string each time
-
-# GOOD: Use join
-result = "".join(str(item) for item in items)
-
-# BAD: Load all into memory
-data = list(huge_generator())
-
-# GOOD: Process in chunks
-for chunk in chunked(huge_generator(), 1000):
-    process(chunk)
-```
-
-### Memory Anti-Patterns
+### Anti-Patterns
 - ❌ Loading entire file into memory
 - ❌ Unbounded caches
 - ❌ Circular references
 - ❌ Large global variables
+- ❌ No disposal of Three.js objects
 
-## Caching Strategy
-
-### Cache Levels
-
-| Level | Use Case | TTL |
-|-------|----------|-----|
-| L1 (in-memory) | Hot data, computed values | 1-5 min |
-| L2 (Redis) | Session, frequently accessed | 5-60 min |
-| L3 (CDN) | Static assets | 1 day+ |
-
-### Cache Invalidation
-
-```python
-# Pattern: Cache-aside
-def get_user(user_id):
-    # Try cache first
-    cached = cache.get(f"user:{user_id}")
-    if cached:
-        return cached
-
-    # Fetch from DB
-    user = db.get_user(user_id)
-
-    # Store in cache
-    cache.set(f"user:{user_id}", user, ttl=300)
-    return user
-
-# Invalidate on update
-def update_user(user_id, data):
-    db.update_user(user_id, data)
-    cache.delete(f"user:{user_id}")
-```
-
-## Async/Concurrency
-
-### When to Use Async
-- ✅ I/O bound operations (API calls, DB)
-- ✅ Multiple independent requests
-- ❌ CPU bound operations (use multiprocessing)
-
-### Connection Pooling
-
-```python
-# BAD: New connection per request
-def get_data():
-    conn = create_connection()
-    result = conn.query(...)
-    conn.close()
-    return result
-
-# GOOD: Connection pool
-pool = create_pool(min=5, max=20)
-
-def get_data():
-    with pool.connection() as conn:
-        return conn.query(...)
-```
-
-## Profiling Before Optimizing
+## Profiling Commands
 
 ```bash
-# Python profiling
-python -m cProfile -s cumtime script.py
+# Quest FPS monitoring
+adb logcat | grep -E "(fps|FPS|frame)"
 
-# Line profiler
-kernprof -l -v script.py
+# GPU/CPU usage
+adb shell dumpsys gpu
 
-# Memory profiler
-python -m memory_profiler script.py
+# Thermal state
+adb shell dumpsys thermalservice
 ```
 
+## Merge Blocker
+
+**Agent must not merge if:**
+- FPS drops >10% on test scene
+- GC spikes visible in profiler
+- Memory grows unbounded over time
+- GPU utilization >85% average on Quest
+
+---
+
 **Rule: Measure first, optimize second. Premature optimization is the root of all evil.**
+
+---
+
+**See also:** `.claude/rules/game-design.md`, `specs/architecture.md`

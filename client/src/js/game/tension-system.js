@@ -7,6 +7,10 @@
  */
 import audioManager from '../core/audio-manager.js';
 
+// TASK-431: Quest detection for disabling tension system
+const _isQuest = typeof window !== 'undefined' &&
+  (window.__isQuestDevice || /Quest|Android|Mobile/i.test(navigator.userAgent));
+
 // ─── TASK-310: Tension Vignette & Heartbeat ───
 
 const HEARTBEAT_INTERVAL_NORMAL = 800;
@@ -42,6 +46,13 @@ class TensionSystem {
   }
 
   start(sceneEl) {
+    // TASK-431: Disable tension system on Quest for performance
+    if (_isQuest) {
+      console.log('[tension-system] Disabled on Quest for performance');
+      this._running = false;
+      return;
+    }
+
     this._running = true;
     this._combo = 0;
     this._dangerLevel = 0;
@@ -111,6 +122,9 @@ class TensionSystem {
   }
 
   _ensureVignette() {
+    // TASK-442: Skip DOM creation on Quest - no element = no computation
+    if (_isQuest) return;
+
     this._vignetteEl = document.getElementById('tension-vignette');
     if (!this._vignetteEl) {
       this._vignetteEl = document.createElement('div');
@@ -131,7 +145,8 @@ class TensionSystem {
   }
 
   _updateVignetteDanger() {
-    if (!this._vignetteEl) return;
+    // TASK-443: Skip vignette updates on Quest
+    if (_isQuest || !this._vignetteEl) return;
     this._vignetteEl.classList.remove('tension-active', 'tension-critical');
 
     if (this._dangerLevel >= 2) {
@@ -150,7 +165,8 @@ class TensionSystem {
   }
 
   _updateVignetteCombo() {
-    if (!this._vignetteEl) return;
+    // TASK-443: Skip vignette updates on Quest
+    if (_isQuest || !this._vignetteEl) return;
     this._vignetteEl.classList.remove('tension-golden', 'tension-white');
 
     if (this._combo > 30) {

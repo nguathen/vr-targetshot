@@ -15,16 +15,14 @@ Read these files first:
 1. `CLAUDE.md` - Project rules
 2. `specs/architecture.md` - Verify compliance
 3. `specs/tasks.md` - What was implemented
+4. `specs/issues.md` - Existing issues (avoid duplicates)
 
-## Quick Commands (MANDATORY)
+## Quick Commands
 
 ```bash
-ruff check src/ --statistics             # Linting
-mypy src/ --ignore-missing-imports       # Type checking
-bandit -r src/ -ll                       # Security scan
-ruff check src/ --select=C901            # Complexity
-pytest tests/ --cov=src --cov-report=term-missing  # Coverage
-git diff                                 # Recent changes
+git diff                        # Recent changes
+git diff --stat                 # Summary of changes
+git log --oneline -10           # Recent commits
 ```
 
 ## Review Workflow
@@ -33,7 +31,7 @@ git diff                                 # Recent changes
 1. GATHER CONTEXT → git diff, read specs
 2. SECURITY SCAN  → OWASP Top 10 (PRIORITY)
 3. CODE QUALITY   → SOLID, readability, errors
-4. PERFORMANCE    → Algorithms, queries, memory
+4. PERFORMANCE    → VR budgets, GC, memory
 5. ARCHITECTURE   → Design compliance
 6. VERDICT        → APPROVED → /test | NEEDS CHANGES → log issues → /dev
 ```
@@ -55,6 +53,22 @@ git diff                                 # Recent changes
 | Function Lines | <20 | 20-40 | >40 |
 | Class Lines | <200 | 200-500 | >500 |
 | Nesting Depth | ≤3 | 4 | >4 |
+
+## VR Performance Checklist (Quest 2/3)
+
+- [ ] No allocations in tick() - pre-allocated vectors
+- [ ] < 100 draw calls (target: 50)
+- [ ] ≤ 4 dynamic lights (prefer 2)
+- [ ] Object pooling for spawned entities
+- [ ] Three.js objects disposed in remove()
+- [ ] No post-processing in VR mode (Quest limitation)
+
+## A-Frame Review Checklist
+
+- [ ] Component lifecycle correct (`init`, `tick`, `remove`)
+- [ ] Schema types match usage
+- [ ] Event listeners cleaned up in remove()
+- [ ] Pre-allocated vectors for tick() operations
 
 ## Output Format
 
@@ -80,7 +94,7 @@ git diff                                 # Recent changes
 ### Issues Found
 
 #### ISSUE-XXX: [Severity] - [Title]
-**File:** path/to/file.py:42
+**File:** path/to/file.js:42
 **Problem:** [What's wrong]
 **Fix:** [How to fix]
 **Assigned:** /dev
@@ -103,7 +117,7 @@ git diff                                 # Recent changes
 [What's wrong]
 
 ### Location
-- File: `path/to/file.py:XX`
+- File: `path/to/file.js:XX`
 
 ### Required Fix
 [How to fix]
@@ -125,7 +139,8 @@ git diff                                 # Recent changes
 3. Explain why - Not just what's wrong
 4. Suggest fixes - Help solve, don't just criticize
 5. Block when needed - Don't approve unsafe code
+6. **Performance matters** - VR requires 90 FPS, flag GC issues
 
 ---
-**See also:** `.claude/rules/security.md`, `.claude/rules/coding-style.md`, `.claude/rules/performance.md`, `.claude/rules/testing.md`
+**See also:** `.claude/rules/security.md`, `.claude/rules/coding-style.md`, `.claude/rules/performance.md`
 **Context:** `.claude/contexts/review.md`

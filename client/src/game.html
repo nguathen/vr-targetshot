@@ -71,6 +71,55 @@
     <div class="countdown-text" id="countdown-number">3</div>
   </div>
 
+  <!-- TASK-444/445/446/447/448/449: V34 - Complete Quest Optimization -->
+  <script>
+  (function() {
+    window.__isQuestDevice = /Quest|Android|Mobile/i.test(navigator.userAgent);
+    if (!window.__isQuestDevice) return;
+
+    console.log('[V34] Quest detected - Renderer & Raycaster optimization active');
+
+    // TASK-445: Set low pixelRatio BEFORE A-Frame loads scene
+    // A-Frame reads window.devicePixelRatio during init
+    Object.defineProperty(window, 'devicePixelRatio', {
+      get: function() { return 1.0; },
+      configurable: true
+    });
+
+    // TASK-449: Modify scene HTML BEFORE A-Frame parses it
+    document.addEventListener('DOMContentLoaded', function() {
+      var scene = document.getElementById('game-scene');
+      if (!scene) return;
+
+      // TASK-445: Override renderer settings
+      scene.setAttribute('renderer', 'antialias: false; colorManagement: true; physicallyCorrectLights: false; logarithmicDepthBuffer: false');
+
+      // TASK-447: Remove shadow system entirely
+      scene.removeAttribute('shadow');
+
+      // TASK-448: Remove expensive post-processing components
+      scene.removeAttribute('bloom-effect');
+      scene.removeAttribute('env-reflections');
+
+      // TASK-446: Remove desktop cursor (VR uses controller raycasters)
+      var cursor = scene.querySelector('a-cursor');
+      if (cursor) cursor.remove();
+
+      // TASK-446: Reduce raycaster far distance
+      var leftHand = document.getElementById('left-hand');
+      var rightHand = document.getElementById('right-hand');
+      if (leftHand) leftHand.setAttribute('raycaster', 'objects: .target; far: 20; lineColor: #44aaff; lineOpacity: 0.5');
+      if (rightHand) rightHand.setAttribute('raycaster', 'objects: .target; far: 20; lineColor: #ff4444; lineOpacity: 0.7');
+
+      // TASK-447: Remove shadow from floor
+      var floor = scene.querySelector('a-plane[shadow]');
+      if (floor) floor.removeAttribute('shadow');
+
+      console.log('[V34] Quest optimizations applied: renderer, raycaster, shadow, bloom, cursor');
+    });
+  })();
+  </script>
+
   <!-- Register A-Frame components before scene -->
   <script src="./js/components/smooth-locomotion.js"></script>
   <script src="./js/components/shoot-controls.js"></script>
@@ -82,13 +131,141 @@
   <script src="./js/components/weapon-model.js"></script>
   <script src="./js/components/hand-shield.js"></script>
   <script src="./js/components/env-reflections.js"></script>
+  <script src="./js/components/fps-counter.js"></script>
 
-  <a-scene id="game-scene" vr-mode-ui="enterVRButton: #enter-vr-custom" shadow="type: pcfsoft; autoUpdate: true"
+  <!-- V32/V34 Quest performance: handled by V34 script above, plus DOM cleanup -->
+  <script>
+  (function() {
+    if (!window.__isQuestDevice) return;
+    document.addEventListener('DOMContentLoaded', function() {
+      // TASK-428: Remove decorative pillars
+      document.querySelectorAll('a-cylinder').forEach(function(el) { el.remove(); });
+      // V43: Keep floor grid but simplify (low opacity)
+      var grid = document.getElementById('floor-grid');
+      if (grid) {
+        var gridPlane = grid.querySelector('a-plane');
+        if (gridPlane) {
+          gridPlane.setAttribute('material', 'shader: flat; color: #1a1a3a; wireframe: true; opacity: 0.08');
+        }
+      }
+      // TASK-433: Reduce to 1 light - remove directional, boost ambient
+      document.querySelectorAll('a-light[type="directional"]').forEach(function(l) { l.remove(); });
+      var ambient = document.querySelector('a-light[type="ambient"]');
+      if (ambient) ambient.setAttribute('intensity', '1.0');
+      // TASK-435: Simplify HUD
+      ['hud-combo', 'hud-lives', 'hud-weapon', 'hud-level', 'hud-boss'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.setAttribute('visible', 'false');
+      });
+      // TASK-457: Reduce floor plane size from 100x100 to 30x30
+      var floor = document.querySelector('a-plane[width="100"]');
+      if (floor) {
+        floor.setAttribute('width', '30');
+        floor.setAttribute('height', '30');
+      }
+      // TASK-458: Remove arena walls (4 boxes) - player movement clamped by smooth-locomotion
+      document.querySelectorAll('a-box').forEach(function(box) { box.remove(); });
+
+      // ========== V38: AGGRESSIVE SCENE STRIP - Find root cause ==========
+      // TASK-463: Remove floor plane entirely
+      var floor = document.querySelector('a-plane[width="30"]') || document.querySelector('a-plane[width="100"]');
+      if (floor) floor.remove();
+
+      // TASK-464: Remove sky
+      var sky = document.querySelector('a-sky');
+      if (sky) sky.remove();
+
+      // TASK-465: Remove ALL lights
+      document.querySelectorAll('a-light').forEach(function(l) { l.remove(); });
+
+      // TASK-466: Remove crosshair
+      var crosshair = document.getElementById('crosshair');
+      if (crosshair) crosshair.remove();
+
+      // TASK-467: Hide ALL HUD text (except FPS counter)
+      document.querySelectorAll('a-text').forEach(function(t) {
+        if (t.id && t.id.indexOf('hud-fps') === 0) return; // Keep FPS visible
+        t.setAttribute('visible', 'false');
+      });
+
+      // TASK-468: Remove a-cursor (desktop mouse)
+      var cursor = document.querySelector('a-cursor');
+      if (cursor) cursor.remove();
+
+      console.log('[V38] AGGRESSIVE STRIP: floor, sky, lights, crosshair, HUD, cursor REMOVED');
+      console.log('[V38] Only remaining: player-rig + targets. If still 40 FPS = A-Frame/WebXR overhead');
+
+      // V40: AGGRESSIVE CLEANUP - Run every second for 20 seconds to catch dynamically created elements
+      var v40CleanupCount = 0;
+      function v40CleanupTheme() {
+        v40CleanupCount++;
+        // Remove AND hide distant environment (buildings, planets, stars)
+        var distantEnv = document.getElementById('distant-env');
+        if (distantEnv) {
+          distantEnv.setAttribute('visible', 'false');
+          while (distantEnv.firstChild) distantEnv.removeChild(distantEnv.firstChild);
+        }
+        // Remove AND hide below-void (data streams, stars below)
+        var belowVoid = document.getElementById('below-void');
+        if (belowVoid) {
+          belowVoid.setAttribute('visible', 'false');
+          while (belowVoid.firstChild) belowVoid.removeChild(belowVoid.firstChild);
+        }
+        // Remove AND hide sky gradient spheres
+        var skyGradient = document.getElementById('sky-gradient');
+        if (skyGradient) {
+          skyGradient.setAttribute('visible', 'false');
+          while (skyGradient.firstChild) skyGradient.removeChild(skyGradient.firstChild);
+        }
+        // Remove ambient particles
+        var apContainer = document.getElementById('ambient-particles-container');
+        if (apContainer) {
+          apContainer.setAttribute('visible', 'false');
+          while (apContainer.firstChild) apContainer.removeChild(apContainer.firstChild);
+        }
+        // Remove floor fade and edge gradients
+        var floorFade = document.getElementById('floor-fade');
+        if (floorFade) {
+          floorFade.setAttribute('visible', 'false');
+          while (floorFade.firstChild) floorFade.removeChild(floorFade.firstChild);
+        }
+        document.querySelectorAll('.floor-edge-gradient').forEach(function(el) { el.remove(); });
+        // Remove weather
+        var weatherContainer = document.getElementById('weather-container');
+        if (weatherContainer) {
+          weatherContainer.setAttribute('visible', 'false');
+          while (weatherContainer.firstChild) weatherContainer.removeChild(weatherContainer.firstChild);
+        }
+        // V44: Keep under-glow rings but disable animation (static rings)
+        document.querySelectorAll('.under-glow-ring').forEach(function(el) {
+          el.removeAttribute('animation');
+          el.setAttribute('rotation', '-90 0 0');
+        });
+        // V44: Remove animated torus EXCEPT under-glow-ring
+        document.querySelectorAll('a-torus:not(.under-glow-ring)').forEach(function(el) {
+          el.remove();
+        });
+        // V43: Dark blue sky instead of pure black
+        var sky = document.querySelector('a-sky');
+        if (sky) sky.setAttribute('color', '#0a0a1a');
+        // Log first run only
+        if (v40CleanupCount === 1) console.log('[V40] Aggressive cleanup started - running every 1s for 20s');
+      }
+      // Run every second for 20 seconds
+      var v40Interval = setInterval(v40CleanupTheme, 1000);
+      setTimeout(function() { clearInterval(v40Interval); console.log('[V40] Cleanup complete'); }, 20000);
+    });
+  })();
+  </script>
+
+  <!-- TASK-445: Desktop also gets optimized renderer (no antialias saves GPU) -->
+  <a-scene id="game-scene" vr-mode-ui="enterVRButton: #enter-vr-custom"
+           renderer="antialias: false; colorManagement: true"
            bloom-effect="strength: 0.3; radius: 0.4; threshold: 0.7"
            env-reflections>
     <!-- Player Rig -->
     <a-entity id="player-rig" position="0 0 0" smooth-locomotion="speed: 3; camera: #camera">
-      <a-camera id="camera" position="0 1.6 0" wasd-controls="acceleration: 20" look-controls camera-effects="shakeLevel: medium">
+      <a-camera id="camera" position="0 1.6 0" wasd-controls="acceleration: 20" look-controls camera-effects="shakeLevel: medium" fps-counter="logInterval: 3">
         <!-- Crosshair -->
         <a-ring id="crosshair" position="0 0 -1" radius-inner="0.01" radius-outer="0.015"
                 color="#00ff88" material="shader: flat; opacity: 0.8"></a-ring>
@@ -141,40 +318,38 @@
     <!-- Environment -->
     <a-sky color="#0a0a1a"></a-sky>
 
-    <!-- Grid floor -->
+    <!-- Grid floor (Quest optimized: shader: flat, no shadow) -->
     <a-plane position="0 0 0" rotation="-90 0 0" width="100" height="100"
-             material="color: #111133; metalness: 0.8; roughness: 0.4" shadow="receive: true"></a-plane>
+             material="shader: flat; color: #111133"></a-plane>
+    <!-- Floor grid (Quest optimized: shader: flat, no transparency) -->
     <a-entity id="floor-grid" position="0 0.01 0" rotation="-90 0 0">
-      <a-plane width="30" height="30" material="color: #1a1a4e; wireframe: true; wireframeLinewidth: 1; opacity: 0.3"
+      <a-plane width="30" height="30" material="shader: flat; color: #0d0d2a; wireframe: true; wireframeLinewidth: 1"
                segments-width="30" segments-height="30"></a-plane>
     </a-entity>
 
-    <!-- Arena walls -->
+    <!-- Arena walls (Quest optimized: shader: flat, no transparency) -->
     <a-box position="0 2 -15" width="30" height="5" depth="0.1"
-           material="color: #0044aa; opacity: 0.15; shader: flat"></a-box>
+           material="shader: flat; color: #060d1a"></a-box>
     <a-box position="-15 2 0" width="0.1" height="5" depth="30"
-           material="color: #0044aa; opacity: 0.15; shader: flat"></a-box>
+           material="shader: flat; color: #060d1a"></a-box>
     <a-box position="15 2 0" width="0.1" height="5" depth="30"
-           material="color: #0044aa; opacity: 0.15; shader: flat"></a-box>
+           material="shader: flat; color: #060d1a"></a-box>
     <a-box position="0 2 15" width="30" height="5" depth="0.1"
-           material="color: #0044aa; opacity: 0.15; shader: flat"></a-box>
+           material="shader: flat; color: #060d1a"></a-box>
 
-    <!-- Lighting -->
-    <a-light type="ambient" color="#333355" intensity="0.6"></a-light>
-    <a-light type="point" position="0 10 0" intensity="1.6" color="#4466ff" distance="40"></a-light>
-    <a-light type="point" position="-8 6 -8" intensity="0.8" color="#ff4444" distance="25"></a-light>
-    <a-light type="point" position="8 6 -8" intensity="0.8" color="#44ff44" distance="25"></a-light>
-    <a-light type="point" position="0 4 8" intensity="0.6" color="#ff88ff" distance="20"></a-light>
+    <!-- Lighting (Quest optimized: 2 lights max) -->
+    <a-light type="ambient" color="#445566" intensity="0.7"></a-light>
+    <a-light type="directional" position="1 2 1" intensity="0.9" color="#aabbff"></a-light>
 
-    <!-- Decorative pillars -->
-    <a-cylinder position="-14 2 -14" radius="0.3" height="4" color="#1a1a4e"
-                material="shader: flat; opacity: 0.5"></a-cylinder>
-    <a-cylinder position="14 2 -14" radius="0.3" height="4" color="#1a1a4e"
-                material="shader: flat; opacity: 0.5"></a-cylinder>
-    <a-cylinder position="-14 2 14" radius="0.3" height="4" color="#1a1a4e"
-                material="shader: flat; opacity: 0.5"></a-cylinder>
-    <a-cylinder position="14 2 14" radius="0.3" height="4" color="#1a1a4e"
-                material="shader: flat; opacity: 0.5"></a-cylinder>
+    <!-- Decorative pillars (Quest optimized: shader: flat, no transparency) -->
+    <a-cylinder position="-14 2 -14" radius="0.3" height="4"
+                material="shader: flat; color: #0d0d27"></a-cylinder>
+    <a-cylinder position="14 2 -14" radius="0.3" height="4"
+                material="shader: flat; color: #0d0d27"></a-cylinder>
+    <a-cylinder position="-14 2 14" radius="0.3" height="4"
+                material="shader: flat; color: #0d0d27"></a-cylinder>
+    <a-cylinder position="14 2 14" radius="0.3" height="4"
+                material="shader: flat; color: #0d0d27"></a-cylinder>
 
     <!-- Target container -->
     <a-entity id="target-container"></a-entity>

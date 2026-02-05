@@ -4,6 +4,11 @@
  *
  * Usage: <a-entity ambient-particles="count: 25; color: #4488ff; area: 20">
  */
+
+// V38: Quest detection for disabling ambient particles
+const _isQuestAP = typeof window !== 'undefined' &&
+  (window.__isQuestAPDevice || /Quest|Android|Mobile/i.test(navigator.userAgent));
+
 AFRAME.registerComponent('ambient-particles', {
   schema: {
     count: { type: 'int', default: 25 },
@@ -14,6 +19,11 @@ AFRAME.registerComponent('ambient-particles', {
   },
 
   init() {
+    // V38: Disable ambient particles on Quest
+    if (_isQuestAP) {
+      console.log('[V38] ambient-particles: Disabled on Quest');
+      return;
+    }
     this._particles = [];
     this._spawn();
   },

@@ -46,6 +46,14 @@ AFRAME.registerComponent('bloom-effect', {
     this._vrVignetteEl = null;
     this._vrDamageEl = null;
 
+    // TASK-405: Disable bloom on Quest/mobile GPU (5 render passes too expensive)
+    const isMobileGPU = /Quest|Android|Mobile/i.test(navigator.userAgent);
+    const settings = typeof window.__getSettings === 'function' ? window.__getSettings() : {};
+    if (isMobileGPU && !settings.forceBloom) {
+      this.data.enabled = false;
+      console.log('[bloom-effect] Disabled on Quest/mobile GPU for performance');
+    }
+
     // TASK-332: Event listeners
     this._onDamage = () => { this._damageFlash = 0.4; };
     this._onKill = () => { this._killFlash = 0.15; };

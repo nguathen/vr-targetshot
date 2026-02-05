@@ -1,7 +1,14 @@
 import { getSettings } from '../game/settings-util.js';
 
+// TASK-436: Quest detection for disabling haptics
+const _isQuest = typeof window !== 'undefined' &&
+  (window.__isQuestDevice || /Quest|Android|Mobile/i.test(navigator.userAgent));
+
 class HapticManager {
   pulse(intensity, duration) {
+    // TASK-436: Disable haptics on Quest for performance
+    if (_isQuest) return;
+
     const settings = getSettings();
     const scale = (settings.vibration ?? 50) / 100;
     if (scale === 0) return;

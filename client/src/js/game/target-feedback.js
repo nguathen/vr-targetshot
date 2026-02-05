@@ -5,6 +5,10 @@
  */
 import audioManager from '../core/audio-manager.js';
 
+// V42: Quest detection - skip torus decorations
+const _isQuestTF = typeof window !== 'undefined' &&
+  (window.__isQuestDevice || /Quest|Android|Mobile/i.test(navigator.userAgent));
+
 export default class TargetFeedback {
   constructor(ts) {
     /** @type {import('./target-system.js').default} */
@@ -185,13 +189,16 @@ export default class TargetFeedback {
     const el = document.createElement('a-entity');
     el.setAttribute('position', `${x} ${y} ${z}`);
 
-    const ring = document.createElement('a-torus');
-    ring.setAttribute('radius', '1.5');
-    ring.setAttribute('radius-tubular', '0.03');
-    ring.setAttribute('material', 'shader: flat; color: #ffd700; opacity: 0.3; transparent: true');
-    ring.setAttribute('animation__pulse', { property: 'material.opacity', from: 0.2, to: 0.5, dur: 800, loop: true, dir: 'alternate' });
-    ring.setAttribute('animation__spin', { property: 'rotation', to: '0 360 0', dur: 4000, loop: true, easing: 'linear' });
-    el.appendChild(ring);
+    // V42: Skip torus on Quest
+    if (!_isQuestTF) {
+      const ring = document.createElement('a-torus');
+      ring.setAttribute('radius', '1.5');
+      ring.setAttribute('radius-tubular', '0.03');
+      ring.setAttribute('material', 'shader: flat; color: #ffd700; opacity: 0.3; transparent: true');
+      ring.setAttribute('animation__pulse', { property: 'material.opacity', from: 0.2, to: 0.5, dur: 800, loop: true, dir: 'alternate' });
+      ring.setAttribute('animation__spin', { property: 'rotation', to: '0 360 0', dur: 4000, loop: true, easing: 'linear' });
+      el.appendChild(ring);
+    }
 
     const label = document.createElement('a-text');
     label.setAttribute('value', '3X');

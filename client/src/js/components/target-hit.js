@@ -4,6 +4,11 @@
  *
  * Usage: <a-entity target-hit="hp: 2; targetType: heavy">
  */
+
+// TASK-423/426/427: Quest detection for performance optimizations
+const _isQuestTH = typeof window !== 'undefined' &&
+  (window.__isQuestTHDevice || /Quest|Android|Mobile/i.test(navigator.userAgent));
+
 AFRAME.registerComponent('target-hit', {
   schema: {
     hp: { type: 'int', default: 1 },
@@ -18,6 +23,9 @@ AFRAME.registerComponent('target-hit', {
     this.el.addEventListener('click', this._onClick);
     this._destroyed = false;
     this._hp = this.data.hp;
+
+    // TASK-390: Lazy-init cache for environment elements (avoid querySelectorAll per kill)
+    this._envCache = null;
   },
 
   remove() {
@@ -78,14 +86,15 @@ AFRAME.registerComponent('target-hit', {
     core.setAttribute('material', 'emissive', '#ffffff');
     core.setAttribute('material', 'emissiveIntensity', '1.5');
 
-    // 2) Shockwave ring
-    this._spawnShockwave(scene, pos, color);
+    // 2) Shockwave ring — TASK-423: Skip on Quest for performance
+    if (!_isQuestTH) {
+      this._spawnShockwave(scene, pos, color);
+    }
 
-    // 3) Flash point light
-    this._spawnFlashLight(scene, pos, color);
+    // 3) TASK-401: Removed _spawnFlashLight() - point lights per kill violate 4-light budget
+    // Visual feedback provided by core white flash (lines 80-82) + shockwave + core flash sphere
 
-    // 4) Core flash sphere (bright orb)
-    this._spawnCoreFlash(scene, pos, color);
+    // TASK-403: Core flash sphere removed - target's own white flash (lines 80-82) provides feedback
 
     // === 50ms: Particle burst (sparks + debris) ===
     setTimeout(() => {
@@ -103,7 +112,8 @@ AFRAME.registerComponent('target-hit', {
 
     // === 150ms: Dissolve or shrink ===
     const settings = typeof getSettings === 'function' ? getSettings() : {};
-    const useDissolve = settings.dissolveEffect !== false;
+    // TASK-427: Force disable dissolve on Quest for performance
+    const useDissolve = !_isQuestTH && settings.dissolveEffect !== false;
     if (useDissolve && this.el.components && !this.el.components['dissolve-effect']) {
       // TASK-322: Apply dissolve shader instead of instant shrink
       try {
@@ -122,10 +132,7 @@ AFRAME.registerComponent('target-hit', {
       }, 80);
     }
 
-    // === Second shockwave (delayed, larger, fainter) ===
-    setTimeout(() => {
-      this._spawnShockwave(scene, pos, color, true);
-    }, 80);
+    // TASK-402: Secondary shockwave removed - primary shockwave provides sufficient feedback
 
     // === Camera shake + FOV punch on kill ===
     const shakeIntensity = type === 'heavy' ? 0.018 : type === 'bonus' ? 0.014 : 0.01;
@@ -146,7 +153,10 @@ AFRAME.registerComponent('target-hit', {
     }
 
     // === Barrier & platform reactive pulse ===
-    this._pulseEnvironment(color);
+    // TASK-423: Skip on Quest for performance
+    if (!_isQuestTH) {
+      this._pulseEnvironment(color);
+    }
 
     // === 350ms: Cleanup ===
     setTimeout(() => {
@@ -194,62 +204,35 @@ AFRAME.registerComponent('target-hit', {
     }, dur);
   },
 
-  _spawnFlashLight(scene, pos, color) {
-    const light = document.createElement('a-entity');
-    light.setAttribute('position', `${pos.x} ${pos.y} ${pos.z}`);
-    light.setAttribute('light', `type: point; color: ${color}; intensity: 3; distance: 6; decay: 2`);
+  // TASK-401: _spawnFlashLight removed - point lights per kill cause FPS drops
+  // Visual feedback via emissive materials + shockwave + core flash sphere is sufficient
 
-    light.setAttribute('animation__dim', {
-      property: 'light.intensity',
-      from: 3, to: 0,
-      dur: 250, easing: 'easeOutQuad',
-    });
-
-    scene.appendChild(light);
-    setTimeout(() => {
-      if (light.parentNode) light.parentNode.removeChild(light);
-    }, 300);
-  },
-
-  _spawnCoreFlash(scene, pos, color) {
-    const orb = document.createElement('a-sphere');
-    orb.setAttribute('position', `${pos.x} ${pos.y} ${pos.z}`);
-    orb.setAttribute('radius', '0.05');
-    orb.setAttribute('material', `shader: flat; color: #ffffff; emissive: ${color}; emissiveIntensity: 2; opacity: 0.9; transparent: true`);
-    orb.setAttribute('shadow', 'cast: false; receive: false');
-
-    orb.setAttribute('animation__grow', {
-      property: 'scale',
-      from: '0.5 0.5 0.5', to: '6 6 6',
-      dur: 150, easing: 'easeOutQuad',
-    });
-    orb.setAttribute('animation__fade', {
-      property: 'material.opacity',
-      from: 0.9, to: 0,
-      dur: 150, easing: 'easeInQuad',
-    });
-
-    scene.appendChild(orb);
-    setTimeout(() => {
-      if (orb.parentNode) orb.parentNode.removeChild(orb);
-    }, 200);
-  },
+  // TASK-403: _spawnCoreFlash removed - target's emissive flash is sufficient
 
   _pulseEnvironment(color) {
     const type = this.data.targetType;
     const isBoss = type === 'boss';
 
+    // TASK-390: Lazy-init cache for environment elements (avoid querySelectorAll per kill)
+    if (!this._envCache) {
+      const scene = this.el.sceneEl;
+      this._envCache = {
+        barriers: document.querySelectorAll('.arena-barrier'),
+        edges: document.querySelectorAll('.platform-edge'),
+        lights: scene ? scene.querySelectorAll('[light]') : [],
+        platformBase: scene ? scene.querySelector('.platform-base') : null,
+      };
+    }
+
     // Pulse nearest barrier
-    const barriers = document.querySelectorAll('.arena-barrier');
-    barriers.forEach(b => {
+    this._envCache.barriers.forEach(b => {
       b.setAttribute('animation__pulse', {
         property: 'material.opacity', from: isBoss ? 0.25 : 0.12, to: 0.03,
         dur: isBoss ? 500 : 300, easing: 'easeOutQuad',
       });
     });
     // Pulse platform edge glow
-    const edges = document.querySelectorAll('.platform-edge');
-    edges.forEach(e => {
+    this._envCache.edges.forEach(e => {
       e.setAttribute('animation__hitpulse', {
         property: 'material.opacity', from: isBoss ? 1.0 : 0.9, to: 0.3,
         dur: isBoss ? 600 : 400, easing: 'easeOutQuad',
@@ -257,10 +240,8 @@ AFRAME.registerComponent('target-hit', {
     });
 
     // Pulse scene lights — flash nearest ambient/point lights
-    const scene = this.el.sceneEl;
-    const lights = scene.querySelectorAll('[light]');
     const pulseColor = isBoss ? '#ffffff' : color;
-    lights.forEach(l => {
+    this._envCache.lights.forEach(l => {
       const lightData = l.getAttribute('light');
       if (!lightData) return;
       const origIntensity = lightData.intensity || 1;
@@ -277,9 +258,8 @@ AFRAME.registerComponent('target-hit', {
     });
 
     // Platform glow intensify on kill
-    const platformBase = scene.querySelector('.platform-base');
-    if (platformBase) {
-      platformBase.setAttribute('animation__killglow', {
+    if (this._envCache.platformBase) {
+      this._envCache.platformBase.setAttribute('animation__killglow', {
         property: 'material.opacity', from: isBoss ? 0.5 : 0.3, to: 0.1,
         dur: isBoss ? 600 : 400, easing: 'easeOutQuad',
       });
@@ -288,8 +268,12 @@ AFRAME.registerComponent('target-hit', {
 
   _spawnParticles(color, pos) {
     const type = this.data.targetType;
-    const counts = { standard: 15, heavy: 25, bonus: 20, decoy: 8, speed: 18, powerup: 18 };
-    const count = counts[type] || 15;
+    // TASK-404: Reduced particle counts by 50% for Quest performance
+    // TASK-426: Further reduce to 4 on Quest
+    const desktopCounts = { standard: 8, heavy: 12, bonus: 10, decoy: 5, speed: 9, powerup: 9 };
+    const questCounts = { standard: 4, heavy: 6, bonus: 5, decoy: 3, speed: 4, powerup: 4 };
+    const counts = _isQuestTH ? questCounts : desktopCounts;
+    const count = counts[type] || (_isQuestTH ? 4 : 8);
     const burstColor = type === 'bonus' ? '#ffd700' : type === 'decoy' ? '#661111' : color;
 
     // TASK-320: Use GPU particles when available, fallback to entity burst

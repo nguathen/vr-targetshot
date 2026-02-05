@@ -47,14 +47,43 @@ AFRAME.registerComponent('env-reflections', {
     const renderer = this.el.renderer;
     if (!renderer) return;
 
+    // TASK-406: Disable on Quest/mobile GPU (PMREM generation too expensive)
+    const isMobileGPU = /Quest|Android|Mobile/i.test(navigator.userAgent);
+    if (isMobileGPU) {
+      console.log('[env-reflections] Disabled on Quest/mobile GPU for performance');
+      return;
+    }
+
+    // Check settings
+    const settings = typeof window.__getSettings === 'function' ? window.__getSettings() : {};
+    if (settings.reflections === false) {
+      console.log('[env-reflections] Disabled by settings');
+      return;
+    }
+
+    // TASK-391: Skip PMREM entirely in VR mode (too expensive for Quest)
+    if (navigator.xr) {
+      navigator.xr.isSessionSupported('immersive-vr').then(supported => {
+        if (supported) {
+          console.log('[env-reflections] Disabled for VR performance');
+          this._vrMode = true;
+          return;
+        }
+        this._initPMREM(settings);
+      }).catch(() => {
+        this._initPMREM(settings);
+      });
+    } else {
+      this._initPMREM(settings);
+    }
+  },
+
+  _initPMREM(settings) {
+    const renderer = this.el.renderer;
     // TASK-381: Only create PMREMGenerator here — defer shader compilation
     this._pmrem = new THREE.PMREMGenerator(renderer);
     // DON'T call compileCubemapShader() here — let it compile lazily on first use
     this._pmremReady = true;
-
-    // Check settings
-    const settings = typeof window.__getSettings === 'function' ? window.__getSettings() : {};
-    if (settings.reflections === false) return;
 
     // TASK-381: Defer initial env map generation to next frame (after scene render)
     setTimeout(() => {
@@ -79,6 +108,8 @@ AFRAME.registerComponent('env-reflections', {
   },
 
   _applyEnvMap(themeId) {
+    // TASK-391: Skip in VR mode
+    if (this._vrMode) return;
     if (!this._pmrem || !this.data.enabled) return;
 
     // Check settings at runtime
@@ -198,6 +229,8 @@ AFRAME.registerComponent('env-reflections', {
 
   // TASK-341: Procedural floor normal maps
   _applyFloorNormal(themeId) {
+    // TASK-391: Skip in VR mode
+    if (this._vrMode) return;
     const scene = this.el.object3D;
     if (!scene) return;
 
