@@ -108,16 +108,18 @@ export default class TargetSpecials {
       dur: 400, loop: true, dir: 'alternate', easing: 'easeInOutSine',
     });
 
-    // Orange energy ring (V42: Skip on Quest)
+    // Orange energy ring (V47: Quest gets 1 static ring, desktop gets 2 animated)
+    const ring = document.createElement('a-torus');
+    ring.setAttribute('radius', '0.55');
+    ring.setAttribute('radius-tubular', '0.02');
+    ring.setAttribute('material', 'shader: flat; color: #ff8800; opacity: 0.5; transparent: true');
     if (!_isQuestTS) {
-      const ring = document.createElement('a-torus');
-      ring.setAttribute('radius', '0.55');
-      ring.setAttribute('radius-tubular', '0.02');
-      ring.setAttribute('material', 'shader: flat; color: #ff8800; opacity: 0.5; transparent: true');
       ring.setAttribute('animation__spin', { property: 'rotation', to: '0 360 0', dur: 600, loop: true, easing: 'linear' });
-      el.appendChild(ring);
+    }
+    el.appendChild(ring);
 
-      // Second ring perpendicular
+    // Second ring - desktop only
+    if (!_isQuestTS) {
       const ring2 = document.createElement('a-torus');
       ring2.setAttribute('radius', '0.5');
       ring2.setAttribute('radius-tubular', '0.015');
@@ -302,18 +304,18 @@ export default class TargetSpecials {
       el.setAttribute('target-hit', 'hp: 1; targetType: standard');
       el.setAttribute('animation__spawn', { property: 'scale', from: '0 0 0', to: '1 1 1', dur: 300, easing: 'easeOutElastic' });
 
-      // Pulsing glow ring (V42: Skip on Quest)
+      // Pulsing glow ring (V49: Quest gets static ring, desktop gets animated)
+      const ring = document.createElement('a-torus');
+      ring.setAttribute('radius', '0.4');
+      ring.setAttribute('radius-tubular', '0.015');
+      ring.setAttribute('material', `shader: flat; color: ${color}; opacity: 0.4; transparent: true`);
       if (!_isQuestTS) {
-        const ring = document.createElement('a-torus');
-        ring.setAttribute('radius', '0.4');
-        ring.setAttribute('radius-tubular', '0.015');
-        ring.setAttribute('material', `shader: flat; color: ${color}; opacity: 0.4; transparent: true`);
         ring.setAttribute('animation__pulse', {
           property: 'material.opacity', from: 0.2, to: 0.6,
           dur: 500, loop: true, dir: 'alternate', easing: 'easeInOutSine',
         });
-        el.appendChild(ring);
       }
+      el.appendChild(ring);
 
       el._targetType = 'standard';
       el._targetPoints = 30;

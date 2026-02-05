@@ -92,6 +92,97 @@
         el.remove();
       });
       // V44: Keep arena pillars (cylinder + sphere only, torus removed above)
+      // V45: Disable pillar sphere animations (static glow instead of pulsing)
+      document.querySelectorAll('.arena-pillar a-sphere').forEach(function(el) {
+        el.removeAttribute('animation');
+        el.setAttribute('material', 'shader: flat; color: #4466ff; emissive: #4466ff; emissiveIntensity: 0.8');
+      });
+      // V49: Increased ambient particles (8)
+      var gc = document.getElementById('game-content');
+      if (gc && !document.getElementById('quest-particles')) {
+        var particleContainer = document.createElement('a-entity');
+        particleContainer.id = 'quest-particles';
+        var colors = ['#4488ff', '#ff44aa', '#44ff88'];
+        for (var i = 0; i < 8; i++) {
+          var p = document.createElement('a-sphere');
+          p.setAttribute('radius', '0.025');
+          var x = (Math.random() - 0.5) * 16;
+          var y = 1.5 + Math.random() * 4;
+          var z = (Math.random() - 0.5) * 16;
+          p.setAttribute('position', x + ' ' + y + ' ' + z);
+          p.setAttribute('material', 'shader: flat; color: ' + colors[i % 3] + '; opacity: 0.4');
+          particleContainer.appendChild(p);
+        }
+        gc.appendChild(particleContainer);
+      }
+      // V49: Below-void stars (increased: 12 stars)
+      if (gc && !document.getElementById('quest-below-void')) {
+        var belowVoid = document.createElement('a-entity');
+        belowVoid.id = 'quest-below-void';
+        // Smaller dark plane below
+        var darkPlane = document.createElement('a-plane');
+        darkPlane.setAttribute('position', '0 -20 0');
+        darkPlane.setAttribute('rotation', '-90 0 0');
+        darkPlane.setAttribute('width', '40');
+        darkPlane.setAttribute('height', '40');
+        darkPlane.setAttribute('material', 'shader: flat; color: #050510');
+        belowVoid.appendChild(darkPlane);
+        // V49: Increased stars (12)
+        for (var s = 0; s < 12; s++) {
+          var star = document.createElement('a-sphere');
+          star.setAttribute('radius', '0.02');
+          var sx = (Math.random() - 0.5) * 30;
+          var sy = -3 - Math.random() * 12;
+          var sz = (Math.random() - 0.5) * 30;
+          star.setAttribute('position', sx + ' ' + sy + ' ' + sz);
+          var starColor = s % 2 === 0 ? '#4466ff' : '#00d4ff';
+          star.setAttribute('material', 'shader: flat; color: ' + starColor + '; emissive: ' + starColor + '; emissiveIntensity: 1');
+          belowVoid.appendChild(star);
+        }
+        gc.appendChild(belowVoid);
+      }
+      // V50: More distant buildings (8 total) + horizon lines
+      if (gc && !document.getElementById('quest-distant')) {
+        var distant = document.createElement('a-entity');
+        distant.id = 'quest-distant';
+        var buildings = [
+          { x: -25, z: -35, w: 3, h: 8 },
+          { x: 0, z: -40, w: 4, h: 12 },
+          { x: 20, z: -38, w: 3, h: 6 },
+          { x: -30, z: -10, w: 2.5, h: 10 },
+          { x: 28, z: -5, w: 2.5, h: 7 },
+          // V50: Additional buildings (behind + side)
+          { x: -10, z: 35, w: 3, h: 9 },
+          { x: 15, z: 38, w: 2.5, h: 7 },
+          { x: -35, z: 15, w: 2.5, h: 8 }
+        ];
+        buildings.forEach(function(b) {
+          var box = document.createElement('a-box');
+          box.setAttribute('position', b.x + ' ' + (b.h / 2) + ' ' + b.z);
+          box.setAttribute('width', b.w);
+          box.setAttribute('height', b.h);
+          box.setAttribute('depth', b.w);
+          box.setAttribute('material', 'shader: flat; color: #0a0a1a; emissive: #111122; emissiveIntensity: 0.3');
+          distant.appendChild(box);
+        });
+        // V50: Grid horizon lines (4 directions for depth)
+        var horizonDirs = [
+          { x: 0, z: -35, rot: '0' },
+          { x: 0, z: 35, rot: '0' },
+          { x: -35, z: 0, rot: '90' },
+          { x: 35, z: 0, rot: '90' }
+        ];
+        horizonDirs.forEach(function(h) {
+          var line = document.createElement('a-plane');
+          line.setAttribute('position', h.x + ' 0.02 ' + h.z);
+          line.setAttribute('rotation', '-90 ' + h.rot + ' 0');
+          line.setAttribute('width', '60');
+          line.setAttribute('height', '0.04');
+          line.setAttribute('material', 'shader: flat; color: #4466ff; emissive: #4466ff; emissiveIntensity: 0.8; opacity: 0.15');
+          distant.appendChild(line);
+        });
+        gc.appendChild(distant);
+      }
       // V43: Improved floor - flat shader with subtle emissive glow
       var floor = document.getElementById('platform-surface');
       if (floor) {

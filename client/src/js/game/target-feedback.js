@@ -89,7 +89,9 @@ export default class TargetFeedback {
           break;
         }
         case 'bonusRain': {
-          for (let i = 0; i < 8; i++) {
+          // V48: Reduce from 8 to 4 on Quest
+          const rainCount = _isQuestTF ? 4 : 8;
+          for (let i = 0; i < rainCount; i++) {
             setTimeout(() => {
               if (!ts._running) return;
               const pos = { x: (Math.random() - 0.5) * 10, y: 8, z: -3 - Math.random() * 8 };
@@ -98,15 +100,19 @@ export default class TargetFeedback {
                 property: 'position', to: `${pos.x} 0.3 ${pos.z}`,
                 dur: 2800, easing: 'easeInQuad',
               });
-            }, i * 150);
+            }, i * (_isQuestTF ? 200 : 150));
           }
           break;
         }
         case 'shieldWall': {
+          // V48: Reduce from 5 to 3 on Quest
+          const wallCount = _isQuestTF ? 3 : 5;
           const wallY = 1.5 + Math.random() * 2;
           const wallZ = -6 - Math.random() * 4;
-          for (let i = 0; i < 5; i++) {
-            const pos = { x: -3 + i * 1.5, y: wallY, z: wallZ };
+          for (let i = 0; i < wallCount; i++) {
+            const spacing = _isQuestTF ? 2 : 1.5;
+            const startX = _isQuestTF ? -2 : -3;
+            const pos = { x: startX + i * spacing, y: wallY, z: wallZ };
             const el = ts._spawner.createEventTarget(pos, 0.35, '#ff3333', 20, 8000);
             el.setAttribute('target-hit', `hp: 2; targetType: heavy`);
           }
@@ -189,16 +195,16 @@ export default class TargetFeedback {
     const el = document.createElement('a-entity');
     el.setAttribute('position', `${x} ${y} ${z}`);
 
-    // V42: Skip torus on Quest
+    // V49: Enable torus on Quest (static, no animation)
+    const ring = document.createElement('a-torus');
+    ring.setAttribute('radius', '1.5');
+    ring.setAttribute('radius-tubular', '0.03');
+    ring.setAttribute('material', 'shader: flat; color: #ffd700; opacity: 0.3; transparent: true');
     if (!_isQuestTF) {
-      const ring = document.createElement('a-torus');
-      ring.setAttribute('radius', '1.5');
-      ring.setAttribute('radius-tubular', '0.03');
-      ring.setAttribute('material', 'shader: flat; color: #ffd700; opacity: 0.3; transparent: true');
       ring.setAttribute('animation__pulse', { property: 'material.opacity', from: 0.2, to: 0.5, dur: 800, loop: true, dir: 'alternate' });
       ring.setAttribute('animation__spin', { property: 'rotation', to: '0 360 0', dur: 4000, loop: true, easing: 'linear' });
-      el.appendChild(ring);
     }
+    el.appendChild(ring);
 
     const label = document.createElement('a-text');
     label.setAttribute('value', '3X');
