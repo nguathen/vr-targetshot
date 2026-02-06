@@ -250,9 +250,9 @@ export default class TargetHazards {
       const cp = new THREE.Vector3();
       cam.object3D.getWorldPosition(cp);
       const scene = ts._container.sceneEl || ts._container.closest('a-scene');
-      // V48: Reduce burst particles on Quest (4 -> 2)
+      // V52: Increase burst particles on Quest (2 -> 3)
       if (scene) {
-        const burstCount = _isQuestTHaz ? 2 : 4;
+        const burstCount = _isQuestTHaz ? 3 : 4;
         for (let i = 0; i < burstCount; i++) {
           const s = document.createElement('a-sphere');
           s.setAttribute('radius', '0.015');
@@ -289,10 +289,10 @@ export default class TargetHazards {
     audioManager.playShieldBlock(pos);
     document.dispatchEvent(new CustomEvent('shield-block', { detail: { pos, points: 5 } }));
 
-    // V48: Reduce shield block particles on Quest (5 -> 2)
+    // V52: Increase shield block particles on Quest (2 -> 3)
     const scene = ts._container.sceneEl || ts._container.closest('a-scene');
     if (scene) {
-      const blockCount = _isQuestTHaz ? 2 : 5;
+      const blockCount = _isQuestTHaz ? 3 : 5;
       for (let i = 0; i < blockCount; i++) {
         const s = document.createElement('a-sphere');
         s.setAttribute('radius', '0.012');
@@ -401,15 +401,13 @@ export default class TargetHazards {
       dur: 300, easing: 'easeOutElastic',
     });
 
-    // V47: Quest gets static ring, desktop gets animated
+    // V52: Quest gets slower animated ring
     const ring = document.createElement('a-torus');
     ring.setAttribute('radius', '0.45');
     ring.setAttribute('radius-tubular', '0.02');
     ring.setAttribute('material', 'shader: flat; color: #ff6600; opacity: 0.5');
     ring.setAttribute('rotation', '90 0 0');
-    if (!_isQuestTHaz) {
-      ring.setAttribute('animation__spin', { property: 'rotation', from: '90 0 0', to: '90 360 0', dur: 500, loop: true, easing: 'linear' });
-    }
+    ring.setAttribute('animation__spin', { property: 'rotation', from: '90 0 0', to: '90 360 0', dur: _isQuestTHaz ? 1000 : 500, loop: true, easing: 'linear' });
     el.appendChild(ring);
 
     el.setAttribute('target-hit', 'hp: 1; targetType: charger');
@@ -745,8 +743,8 @@ export default class TargetHazards {
         el.appendChild(light);
       }
 
-      // V48: Reduce tail spheres from 3 to 1 on Quest
-      const tailCount = _isQuestTHaz ? 1 : 3;
+      // V52: Increase tail spheres from 1 to 2 on Quest
+      const tailCount = _isQuestTHaz ? 2 : 3;
       for (let i = 1; i <= tailCount; i++) {
         const tail = document.createElement('a-sphere');
         tail.setAttribute('radius', String(radius * (1 - i * 0.25)));
@@ -888,9 +886,12 @@ export default class TargetHazards {
       el.setAttribute('material', 'shader: flat; color: #ff0000; opacity: 0.8; transparent: true; emissive: #ff0000; emissiveIntensity: 2');
       el.setAttribute('shadow', 'cast: false; receive: false');
 
-      const light = document.createElement('a-entity');
-      light.setAttribute('light', 'type: point; color: #ff0000; intensity: 1.5; distance: 4; decay: 2');
-      el.appendChild(light);
+      // V52: Skip point light on Quest (use emissive instead)
+      if (!_isQuestTHaz) {
+        const light = document.createElement('a-entity');
+        light.setAttribute('light', 'type: point; color: #ff0000; intensity: 1.5; distance: 4; decay: 2');
+        el.appendChild(light);
+      }
 
       el.setAttribute('animation__sweep', {
         property: 'position',

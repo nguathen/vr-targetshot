@@ -88,8 +88,7 @@ AFRAME.registerComponent('camera-effects', {
   },
 
   _onFovPunch() {
-    // TASK-432: Skip FOV punch on Quest for performance
-    if (_isQuestCE) return;
+    // V52: Re-enable FOV punch on Quest (lightweight - just camera.fov change)
 
     const scale = this._getScale();
     if (scale === 0) return;

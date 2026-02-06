@@ -818,7 +818,7 @@ function _initRound(themeParam) {
       tensionSystem.checkSurge(wave);
       // TASK-313: Arena wall shrink
       const arenaScale = tensionSystem.updateArenaForWave(wave);
-      if (arenaScale < 1.0 && targetSystem._pick360Position) {
+      if (arenaScale < 1.0 && targetSystem.pick360Position) {
         // Arena scale is handled via SPAWN constants adjustment in target system
       }
     }

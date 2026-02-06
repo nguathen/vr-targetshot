@@ -158,10 +158,11 @@ AFRAME.registerComponent('shoot-controls', {
     // Weapon recoil kick (snap back quickly)
     this._applyRecoil(weapon);
 
-    // TASK-430: Skip shell casing on Quest for performance
-    // Shell casing eject (pistol, shotgun, smg — not sniper/railgun)
-    if (!_isQuestSC && (!weapon || (weapon.id !== 'sniper' && weapon.id !== 'railgun'))) {
-      this._spawnShellCasing(weapon);
+    // V52: Enable shell casing for pistol on Quest, all non-energy weapons on desktop
+    if (!weapon || (weapon.id !== 'sniper' && weapon.id !== 'railgun')) {
+      if (!_isQuestSC || !weapon || weapon.id === 'pistol') {
+        this._spawnShellCasing(weapon);
+      }
     }
   },
 

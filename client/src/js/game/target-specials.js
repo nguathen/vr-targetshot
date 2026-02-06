@@ -108,14 +108,12 @@ export default class TargetSpecials {
       dur: 400, loop: true, dir: 'alternate', easing: 'easeInOutSine',
     });
 
-    // Orange energy ring (V47: Quest gets 1 static ring, desktop gets 2 animated)
+    // Orange energy ring (V52: Quest gets 1 animated ring at slower speed)
     const ring = document.createElement('a-torus');
     ring.setAttribute('radius', '0.55');
     ring.setAttribute('radius-tubular', '0.02');
     ring.setAttribute('material', 'shader: flat; color: #ff8800; opacity: 0.5; transparent: true');
-    if (!_isQuestTS) {
-      ring.setAttribute('animation__spin', { property: 'rotation', to: '0 360 0', dur: 600, loop: true, easing: 'linear' });
-    }
+    ring.setAttribute('animation__spin', { property: 'rotation', to: '0 360 0', dur: _isQuestTS ? 1200 : 600, loop: true, easing: 'linear' });
     el.appendChild(ring);
 
     // Second ring - desktop only
@@ -286,7 +284,7 @@ export default class TargetSpecials {
   spawnColorMatchTarget() {
     const ts = this._ts;
     const pick = COLOR_MATCH_COLORS[Math.floor(Math.random() * COLOR_MATCH_COLORS.length)];
-    const spawnPos = ts._pick360Position();
+    const spawnPos = ts.pick360Position();
 
     ts._spawnTelegraph(spawnPos, 'standard');
     setTimeout(() => {
@@ -304,17 +302,15 @@ export default class TargetSpecials {
       el.setAttribute('target-hit', 'hp: 1; targetType: standard');
       el.setAttribute('animation__spawn', { property: 'scale', from: '0 0 0', to: '1 1 1', dur: 300, easing: 'easeOutElastic' });
 
-      // Pulsing glow ring (V49: Quest gets static ring, desktop gets animated)
+      // Pulsing glow ring (V52: Quest gets slower pulse)
       const ring = document.createElement('a-torus');
       ring.setAttribute('radius', '0.4');
       ring.setAttribute('radius-tubular', '0.015');
       ring.setAttribute('material', `shader: flat; color: ${color}; opacity: 0.4; transparent: true`);
-      if (!_isQuestTS) {
-        ring.setAttribute('animation__pulse', {
-          property: 'material.opacity', from: 0.2, to: 0.6,
-          dur: 500, loop: true, dir: 'alternate', easing: 'easeInOutSine',
-        });
-      }
+      ring.setAttribute('animation__pulse', {
+        property: 'material.opacity', from: 0.2, to: 0.6,
+        dur: _isQuestTS ? 1000 : 500, loop: true, dir: 'alternate', easing: 'easeInOutSine',
+      });
       el.appendChild(ring);
 
       el._targetType = 'standard';

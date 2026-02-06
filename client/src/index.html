@@ -82,10 +82,9 @@
       document.querySelectorAll('.floor-edge-gradient').forEach(function(el) {
         el.setAttribute('visible', 'false');
       });
-      // V44: Keep under-glow rings but disable animation (static rings)
+      // V52: Keep under-glow rings with slow rotation (25s+ per cycle = very lightweight)
       document.querySelectorAll('.under-glow-ring').forEach(function(el) {
-        el.removeAttribute('animation');
-        el.setAttribute('rotation', '-90 0 0'); // Reset to static
+        el.setAttribute('material', 'shader: flat; color: #002244; emissive: #0088ff; emissiveIntensity: 0.5');
       });
       // V44: Remove animated torus EXCEPT under-glow-ring
       document.querySelectorAll('a-torus:not(.under-glow-ring)').forEach(function(el) {
@@ -193,7 +192,7 @@
       if (grid) {
         var gridPlane = grid.querySelector('a-plane');
         if (gridPlane) {
-          gridPlane.setAttribute('material', 'shader: flat; color: #1a1a3a; wireframe: true; opacity: 0.08');
+          gridPlane.setAttribute('material', 'shader: flat; color: #1a1a3a; wireframe: true; opacity: 0.12');
         }
       }
       // V43: Dark blue sky instead of pure black (minimal impact)

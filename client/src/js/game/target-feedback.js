@@ -195,15 +195,13 @@ export default class TargetFeedback {
     const el = document.createElement('a-entity');
     el.setAttribute('position', `${x} ${y} ${z}`);
 
-    // V49: Enable torus on Quest (static, no animation)
+    // V52: Quest gets slower animated ring
     const ring = document.createElement('a-torus');
     ring.setAttribute('radius', '1.5');
     ring.setAttribute('radius-tubular', '0.03');
     ring.setAttribute('material', 'shader: flat; color: #ffd700; opacity: 0.3; transparent: true');
-    if (!_isQuestTF) {
-      ring.setAttribute('animation__pulse', { property: 'material.opacity', from: 0.2, to: 0.5, dur: 800, loop: true, dir: 'alternate' });
-      ring.setAttribute('animation__spin', { property: 'rotation', to: '0 360 0', dur: 4000, loop: true, easing: 'linear' });
-    }
+    ring.setAttribute('animation__pulse', { property: 'material.opacity', from: 0.2, to: 0.5, dur: _isQuestTF ? 1600 : 800, loop: true, dir: 'alternate' });
+    ring.setAttribute('animation__spin', { property: 'rotation', to: '0 360 0', dur: _isQuestTF ? 8000 : 4000, loop: true, easing: 'linear' });
     el.appendChild(ring);
 
     const label = document.createElement('a-text');
