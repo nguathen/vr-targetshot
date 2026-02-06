@@ -17,6 +17,8 @@
   </div>
   <script>
   (function(){
+    var startTime=Date.now();
+    var MIN_DISPLAY=3000;
     var tips=[
       "Aim for combos — x5 multiplier at 5 hits!",
       "Power-up targets glow green — shoot them for buffs",
@@ -40,7 +42,12 @@
     var bar=document.getElementById('loading-bar');
     var p=10;
     var iv=setInterval(function(){p=Math.min(p+Math.random()*15,90);if(bar)bar.style.width=p+'%';},300);
+    var dismissed=false;
     function dismiss(){
+      if(dismissed)return;
+      var elapsed=Date.now()-startTime;
+      if(elapsed<MIN_DISPLAY){setTimeout(dismiss,MIN_DISPLAY-elapsed);return;}
+      dismissed=true;
       clearInterval(iv);
       if(bar)bar.style.width='100%';
       var ls=document.getElementById('loading-screen');

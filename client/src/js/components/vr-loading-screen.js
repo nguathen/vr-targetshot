@@ -24,8 +24,10 @@ AFRAME.registerComponent('vr-loading-screen', {
     this._spinAngle = 0;
     this._container = null;
     this._spinner = null;
+    this._startTime = Date.now();
+    this._minDisplay = 3000;
 
-    this._onDismiss = this._dismiss.bind(this);
+    this._onDismiss = this._deferredDismiss.bind(this);
     this.el.addEventListener('vr-loading-screen:dismiss', this._onDismiss);
 
     // Safety timeout: auto-dismiss after 15s if dismiss event never fires
@@ -113,6 +115,16 @@ AFRAME.registerComponent('vr-loading-screen', {
     if (obj) {
       obj.rotation.z = this._spinAngle;
     }
+  },
+
+  _deferredDismiss() {
+    if (this._dismissed) return;
+    var elapsed = Date.now() - this._startTime;
+    if (elapsed < this._minDisplay) {
+      setTimeout(this._onDismiss, this._minDisplay - elapsed);
+      return;
+    }
+    this._dismiss();
   },
 
   _dismiss() {

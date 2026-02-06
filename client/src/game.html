@@ -17,13 +17,16 @@
   </div>
   <script>
   (function(){
+    var startTime=Date.now();
+    var MIN_DISPLAY=3000;
     var tips=["Aim for combos — x5 multiplier at 5 hits!","Dodge red projectiles — they hurt!","Punch melee targets with your fists","Hit rhythm targets on the beat","Lean to dodge laser sweeps","Shield absorbs one hit","Magnet pulls targets toward you","Try different weapons for each mode","Weekly challenges give bonus XP"];
     var el=document.getElementById('loading-tip');if(el)el.textContent=tips[Math.floor(Math.random()*tips.length)];
     var bar=document.getElementById('loading-bar');var p=10;
     var iv=setInterval(function(){p=Math.min(p+Math.random()*15,90);if(bar)bar.style.width=p+'%';},300);
-    function dismiss(){clearInterval(iv);if(bar)bar.style.width='100%';var ls=document.getElementById('loading-screen');if(ls){setTimeout(function(){ls.style.opacity='0';setTimeout(function(){ls.remove();},400);},200);}}
+    var dismissed=false;
+    function dismiss(){if(dismissed)return;var elapsed=Date.now()-startTime;if(elapsed<MIN_DISPLAY){setTimeout(dismiss,MIN_DISPLAY-elapsed);return;}dismissed=true;clearInterval(iv);if(bar)bar.style.width='100%';var ls=document.getElementById('loading-screen');if(ls){setTimeout(function(){ls.style.opacity='0';setTimeout(function(){ls.remove();},400);},200);}}
     var sc=document.querySelector('a-scene');if(sc){if(sc.hasLoaded)dismiss();else sc.addEventListener('loaded',dismiss);}else{window.addEventListener('load',dismiss);}
-    setTimeout(dismiss,8000);
+    setTimeout(dismiss,15000);
   })();
   </script>
   <div id="transition" class="transition"></div>
