@@ -19,7 +19,7 @@ def twaManifest = [
     backgroundColor: '#000000',
     enableNotifications: false,
     shortcuts: [],
-    splashScreenFadeOutDuration: 300,
+    splashScreenFadeOutDuration: 3000,
     generatorApp: 'bubblewrap-cli',
     fallbackType: 'customtabs',
     enableSiteSettingsShortcut: 'false',

@@ -17,7 +17,7 @@
   "enableXRScene": false,
   "startUrl": "/",
   "iconUrl": "https://vr.proxyit.online/icon-512.png",
-  "splashScreenFadeOutDuration": 300,
+  "splashScreenFadeOutDuration": 3000,
   "signingKey": {
     "path": "./android.keystore",
     "alias": "android"
