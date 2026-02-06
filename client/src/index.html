@@ -48,12 +48,11 @@
     }
     var sc=document.querySelector('a-scene');
     if(sc){
-      if(sc.hasLoaded)dismiss();
-      else sc.addEventListener('loaded',dismiss);
+      sc.addEventListener('menu-ready',dismiss);
     }else{
       window.addEventListener('load',dismiss);
     }
-    setTimeout(dismiss,8000);
+    setTimeout(dismiss,15000);
   })();
   </script>
 

@@ -9,6 +9,11 @@
  *              document.dispatchEvent(new CustomEvent('camera-impact-zoom', { detail: { duration } }))
  */
 /* global AFRAME */
+
+// TASK-432: Quest detection for disabling camera effects
+const _isQuestCE = typeof window !== 'undefined' &&
+  (window.__isQuestCEDevice || /Quest|Android|Mobile/i.test(navigator.userAgent));
+
 AFRAME.registerComponent('camera-effects', {
   schema: {
     shakeLevel: { type: 'string', default: 'medium' }, // off, low, medium, high
@@ -39,6 +44,9 @@ AFRAME.registerComponent('camera-effects', {
   },
 
   _onShake(evt) {
+    // TASK-432: Skip camera shake on Quest for performance
+    if (_isQuestCE) return;
+
     const scale = this._getScale();
     if (scale === 0) return;
 
@@ -80,6 +88,8 @@ AFRAME.registerComponent('camera-effects', {
   },
 
   _onFovPunch() {
+    // V52: Re-enable FOV punch on Quest (lightweight - just camera.fov change)
+
     const scale = this._getScale();
     if (scale === 0) return;
 
@@ -98,6 +108,9 @@ AFRAME.registerComponent('camera-effects', {
   },
 
   _onImpactZoom(evt) {
+    // TASK-432: Skip impact zoom on Quest for performance
+    if (_isQuestCE) return;
+
     const scale = this._getScale();
     if (scale === 0) return;
 

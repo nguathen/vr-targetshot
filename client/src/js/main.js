@@ -861,8 +861,9 @@ authManager.waitReady().then(() => {
       }).catch(() => {});
     }
 
-    // Dismiss VR loading screen now that menu is ready (VRC.Quest.Performance.3)
+    // Dismiss both loading screens now that menu is ready
     scene.emit('vr-loading-screen:dismiss');
+    scene.emit('menu-ready');
   };
   if (scene.hasLoaded) init();
   else scene.addEventListener('loaded', init);

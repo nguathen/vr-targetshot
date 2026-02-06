@@ -15,6 +15,11 @@ AFRAME.registerComponent('smooth-locomotion', {
     this._axes = [0, 0];
     this._handleAxes = this._handleAxes.bind(this);
 
+    // Pre-allocate vectors for GC-free tick() (Quest performance)
+    this._dir = new THREE.Vector3();
+    this._right = new THREE.Vector3();
+    this._up = new THREE.Vector3(0, 1, 0);
+
     // Listen for thumbstick input from controllers
     this.el.sceneEl.addEventListener('thumbstickmoved', this._handleAxes);
   },
@@ -40,20 +45,18 @@ AFRAME.registerComponent('smooth-locomotion', {
     const cam = this.data.camera;
     if (!cam) return;
 
-    // Get camera forward/right on XZ plane
+    // Get camera forward/right on XZ plane (GC-free: reuse pre-allocated vectors)
     const camObj = cam.object3D;
-    const dir = new THREE.Vector3();
-    camObj.getWorldDirection(dir);
-    dir.y = 0;
-    dir.normalize();
+    camObj.getWorldDirection(this._dir);
+    this._dir.y = 0;
+    this._dir.normalize();
 
-    const right = new THREE.Vector3();
-    right.crossVectors(dir, new THREE.Vector3(0, 1, 0)).normalize();
+    this._right.crossVectors(this._dir, this._up).normalize();
 
     // Move rig
     const pos = this.el.object3D.position;
-    pos.x += (right.x * this._axes[0] + dir.x * -this._axes[1]) * this.data.speed * dt;
-    pos.z += (right.z * this._axes[0] + dir.z * -this._axes[1]) * this.data.speed * dt;
+    pos.x += (this._right.x * this._axes[0] + this._dir.x * -this._axes[1]) * this.data.speed * dt;
+    pos.z += (this._right.z * this._axes[0] + this._dir.z * -this._axes[1]) * this.data.speed * dt;
 
     // Clamp to arena
     pos.x = THREE.MathUtils.clamp(pos.x, -14, 14);
