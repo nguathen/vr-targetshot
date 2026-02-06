@@ -50,17 +50,26 @@ class AudioManager {
 
   _getCtx() {
     if (!this._ctx) {
-      this._ctx = new (window.AudioContext || window.webkitAudioContext)();
-      this._masterGain = this._ctx.createGain();
-      this._masterGain.connect(this._ctx.destination);
-      this._masterGain.gain.value = this._volume;
-      this._setupReverb();
-      this._setupPriorityBuses();
+      try {
+        this._ctx = new (window.AudioContext || window.webkitAudioContext)();
+        this._masterGain = this._ctx.createGain();
+        this._masterGain.connect(this._ctx.destination);
+        this._masterGain.gain.value = this._volume;
+        this._setupReverb();
+        this._setupPriorityBuses();
+      } catch (e) {
+        return null; // AudioContext blocked
+      }
     }
-    if (this._ctx.state === 'suspended') {
-      this._ctx.resume();
+    if (this._ctx && this._ctx.state === 'suspended') {
+      // Throttle resume attempts to avoid log spam
+      const now = Date.now();
+      if (!this._lastResumeAttempt || now - this._lastResumeAttempt > 1000) {
+        this._lastResumeAttempt = now;
+        this._ctx.resume().catch(() => {});
+      }
     }
-    this._masterGain.gain.value = this._volume;
+    if (this._masterGain) this._masterGain.gain.value = this._volume;
     return this._ctx;
   }
 

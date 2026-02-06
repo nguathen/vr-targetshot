@@ -8,6 +8,11 @@ import powerUpManager from './power-up-manager.js';
 import { getSettings, remapColor } from './settings-util.js';
 import tensionSystem from './tension-system.js';
 import targetModels from './target-models.js';
+import { getTargetCache } from './target-system.js';
+
+// TASK-434: Quest detection for disabling target animations
+const _isQuest = typeof window !== 'undefined' &&
+  (window.__isQuestDevice || /Quest|Android|Mobile/i.test(navigator.userAgent));
 
 // 360-degree spawn: distance bands (close/mid/far), full height range, hemisphere bias
 const SPAWN = {
@@ -126,10 +131,28 @@ export default class TargetSpawner {
       spawnPos._beatSpawnTime = Date.now();
     }
 
-    // V39 TASK-479: Disabled bomb feature (FPS impact)
-    // Bomb explosions create 40+ DOM elements per event, causing severe FPS drops
     if (typeId === 'bomb') {
-      return; // Skip bomb spawning entirely
+      const cam = document.querySelector('[camera]');
+      let warningTime = 800;
+      if (cam) {
+        const cp = cam.object3D.position;
+        const dx = spawnPos.x - cp.x, dy = spawnPos.y - cp.y, dz = spawnPos.z - cp.z;
+        if (Math.sqrt(dx * dx + dy * dy + dz * dz) < 3) warningTime = 400;
+      }
+      this.spawnBombWarning(spawnPos);
+      audioManager.playBombWarning();
+      document.dispatchEvent(new CustomEvent('hud-announce', {
+        detail: { text: '⚠ BOMB INCOMING!', color: '#ff4444', duration: 1200 }
+      }));
+      setTimeout(() => {
+        if (!ts._running) return;
+        this.spawnTelegraph(spawnPos, typeId);
+        setTimeout(() => {
+          if (!ts._running) return;
+          this.spawnTargetAt(typeId, type, spawnPos);
+        }, 500);
+      }, warningTime);
+      return;
     }
 
     this.spawnTelegraph(spawnPos, typeId);
@@ -158,7 +181,8 @@ export default class TargetSpawner {
     }
     el.setAttribute('geometry', geoStr);
 
-    if (type.geometry !== 'a-sphere') {
+    // TASK-434: Skip rotation animation on Quest for performance
+    if (!_isQuest && type.geometry !== 'a-sphere') {
       el.setAttribute('animation__rotate', {
         property: 'rotation', to: '360 360 0',
         dur: 4000 + Math.random() * 2000, easing: 'linear', loop: true,
@@ -169,7 +193,8 @@ export default class TargetSpawner {
     const rawColor = type.color || this._randomColor();
     const color = remapColor(rawColor, settings);
 
-    const use3DModels = settings.targetModels !== false && targetModels.isReady();
+    // TASK-450: Skip 3D models on Quest - use flat primitives instead
+    const use3DModels = !_isQuest && settings.targetModels !== false && targetModels.isReady();
     if (use3DModels) {
       el.setAttribute('material', 'visible: false; opacity: 0');
       el.setAttribute('shadow', 'cast: false; receive: false');
@@ -242,12 +267,14 @@ export default class TargetSpawner {
       dur: 300, easing: 'easeOutElastic',
     });
 
+    // TASK-434: Skip movement patterns on Quest for performance
     const slowMul = powerUpManager.hasSlowField() ? 2.0 : 1.0;
-    if (!settings.reducedMotion) {
+    if (!_isQuest && !settings.reducedMotion) {
       this._applyMovementPattern(el, typeId, type, x, y, z, slowMul);
     }
 
-    if (typeId === 'powerup') {
+    // TASK-434: Skip powerup animations on Quest
+    if (!_isQuest && typeId === 'powerup') {
       el.setAttribute('animation__rotate', {
         property: 'rotation', to: '360 360 0',
         dur: 2000, easing: 'linear', loop: true,
@@ -336,75 +363,76 @@ export default class TargetSpawner {
       ts._container.appendChild(el);
     }
     ts._targets.add(el);
-
-    // V36 TASK-465: Maintain target cache for GC-free target-indicator.js
-    if (window.__targetCache) {
-      window.__targetCache.add(el);
-    }
-
+    getTargetCache().add(el);  // TASK-389: Global cache for O(1) lookup
     audioManager.playSpawn({ x, y, z });
 
     if (spawnPos._rhythmTarget) {
       el._rhythmTarget = true;
       el._beatSpawnTime = spawnPos._beatSpawnTime;
-      const beatDuration = 60000 / ts._bpm;
-      const timingRing = document.createElement('a-ring');
-      timingRing.setAttribute('radius-inner', '0.78');
-      timingRing.setAttribute('radius-outer', '0.8');
-      timingRing.setAttribute('material', 'shader: flat; color: #44ff44; opacity: 0.6; transparent: true');
-      timingRing.setAttribute('animation__shrink', {
-        property: 'radius-inner', from: 0.78, to: type.radius,
-        dur: beatDuration, easing: 'linear',
-      });
-      timingRing.setAttribute('animation__shrink2', {
-        property: 'radius-outer', from: 0.8, to: type.radius + 0.02,
-        dur: beatDuration, easing: 'linear',
-      });
-      timingRing.setAttribute('animation__color', {
-        property: 'material.color', from: '#44ff44', to: '#ff4444',
-        dur: beatDuration, easing: 'linear',
-      });
-      el.appendChild(timingRing);
-      el._timingRing = timingRing;
+      // TASK-453: Skip timing ring visual on Quest (keep rhythm data for scoring)
+      if (!_isQuest) {
+        const beatDuration = 60000 / ts._bpm;
+        const timingRing = document.createElement('a-ring');
+        timingRing.setAttribute('radius-inner', '0.78');
+        timingRing.setAttribute('radius-outer', '0.8');
+        timingRing.setAttribute('material', 'shader: flat; color: #44ff44; opacity: 0.6; transparent: true');
+        timingRing.setAttribute('animation__shrink', {
+          property: 'radius-inner', from: 0.78, to: type.radius,
+          dur: beatDuration, easing: 'linear',
+        });
+        timingRing.setAttribute('animation__shrink2', {
+          property: 'radius-outer', from: 0.8, to: type.radius + 0.02,
+          dur: beatDuration, easing: 'linear',
+        });
+        timingRing.setAttribute('animation__color', {
+          property: 'material.color', from: '#44ff44', to: '#ff4444',
+          dur: beatDuration, easing: 'linear',
+        });
+        el.appendChild(timingRing);
+        el._timingRing = timingRing;
+      }
     }
 
     // TASK-252: Height-zone visual indicators
     const heightZone = spawnPos._heightZone || 'normal';
     el._heightZone = heightZone;
-    if (heightZone === 'floor') {
-      const ring = document.createElement('a-ring');
-      ring.setAttribute('position', `${x} 0.05 ${z}`);
-      ring.setAttribute('rotation', '-90 0 0');
-      ring.setAttribute('radius-inner', '0.4');
-      ring.setAttribute('radius-outer', '0.6');
-      ring.setAttribute('material', 'shader: flat; color: #ff6600; emissive: #ff4400; emissiveIntensity: 1; opacity: 0.4; transparent: true');
-      ring.setAttribute('animation__pulse', {
-        property: 'material.opacity', from: 0.2, to: 0.5,
-        dur: 600, loop: true, dir: 'alternate', easing: 'easeInOutSine',
-      });
-      const scene = ts._container.sceneEl || ts._container.closest('a-scene');
-      if (scene) {
-        scene.appendChild(ring);
-        el._heightIndicator = ring;
+    // TASK-452: Skip height indicator visuals on Quest (keep zone data for scoring)
+    if (!_isQuest) {
+      if (heightZone === 'floor') {
+        const ring = document.createElement('a-ring');
+        ring.setAttribute('position', `${x} 0.05 ${z}`);
+        ring.setAttribute('rotation', '-90 0 0');
+        ring.setAttribute('radius-inner', '0.4');
+        ring.setAttribute('radius-outer', '0.6');
+        ring.setAttribute('material', 'shader: flat; color: #ff6600; emissive: #ff4400; emissiveIntensity: 1; opacity: 0.4; transparent: true');
+        ring.setAttribute('animation__pulse', {
+          property: 'material.opacity', from: 0.2, to: 0.5,
+          dur: 600, loop: true, dir: 'alternate', easing: 'easeInOutSine',
+        });
+        const scene = ts._container.sceneEl || ts._container.closest('a-scene');
+        if (scene) {
+          scene.appendChild(ring);
+          el._heightIndicator = ring;
+        }
+        audioManager.playHeightZoneCue('floor', { x, y, z });
+      } else if (heightZone === 'overhead') {
+        const beam = document.createElement('a-cylinder');
+        const beamH = y - 0.05;
+        beam.setAttribute('position', `${x} ${y / 2} ${z}`);
+        beam.setAttribute('radius', '0.03');
+        beam.setAttribute('height', String(beamH));
+        beam.setAttribute('material', 'shader: flat; color: #44aaff; emissive: #2288ff; emissiveIntensity: 1; opacity: 0.08; transparent: true');
+        beam.setAttribute('animation__pulse', {
+          property: 'material.opacity', from: 0.04, to: 0.12,
+          dur: 800, loop: true, dir: 'alternate', easing: 'easeInOutSine',
+        });
+        const scene = ts._container.sceneEl || ts._container.closest('a-scene');
+        if (scene) {
+          scene.appendChild(beam);
+          el._heightIndicator = beam;
+        }
+        audioManager.playHeightZoneCue('overhead', { x, y, z });
       }
-      audioManager.playHeightZoneCue('floor', { x, y, z });
-    } else if (heightZone === 'overhead') {
-      const beam = document.createElement('a-cylinder');
-      const beamH = y - 0.05;
-      beam.setAttribute('position', `${x} ${y / 2} ${z}`);
-      beam.setAttribute('radius', '0.03');
-      beam.setAttribute('height', String(beamH));
-      beam.setAttribute('material', 'shader: flat; color: #44aaff; emissive: #2288ff; emissiveIntensity: 1; opacity: 0.08; transparent: true');
-      beam.setAttribute('animation__pulse', {
-        property: 'material.opacity', from: 0.04, to: 0.12,
-        dur: 800, loop: true, dir: 'alternate', easing: 'easeInOutSine',
-      });
-      const scene = ts._container.sceneEl || ts._container.closest('a-scene');
-      if (scene) {
-        scene.appendChild(beam);
-        el._heightIndicator = beam;
-      }
-      audioManager.playHeightZoneCue('overhead', { x, y, z });
     }
 
     // Spatial audio hum (max 8 concurrent)
@@ -429,17 +457,8 @@ export default class TargetSpawner {
     const color = TARGET_TYPES[typeId]?.color || '#00d4ff';
     const size = isBoss ? 1.5 : 0.8;
 
-    const light = document.createElement('a-entity');
-    light.setAttribute('position', `${pos.x} ${pos.y} ${pos.z}`);
-    light.setAttribute('light', `type: point; color: ${color}; intensity: 0; distance: ${isBoss ? 8 : 4}; decay: 2`);
-    light.setAttribute('animation__fadein', {
-      property: 'light.intensity', from: 0, to: isBoss ? 1.5 : 0.8,
-      dur: 450, easing: 'easeInQuad',
-    });
-    scene.appendChild(light);
-
-    // V38 TASK-477: Skip particles on Quest (30-40 spawn bursts/min → 0)
-    const particleCount = (typeof VRCore !== 'undefined' && VRCore.isQuest && VRCore.isQuest()) ? 0 : (isBoss ? 5 : 3);
+    // Performance: Removed point light - emissive spheres provide glow without GPU overhead
+    const particleCount = isBoss ? 5 : 3;
     for (let i = 0; i < particleCount; i++) {
       const angle = (i / particleCount) * Math.PI * 2;
       const dist = size;
@@ -463,7 +482,6 @@ export default class TargetSpawner {
     }
 
     audioManager.playTelegraph(pos, isBoss);
-    setTimeout(() => { if (light.parentNode) light.parentNode.removeChild(light); }, 550);
   }
 
   spawnBombWarning(pos) {
@@ -488,15 +506,7 @@ export default class TargetSpawner {
     scene.appendChild(ring);
     setTimeout(() => { if (ring.parentNode) ring.parentNode.removeChild(ring); }, 850);
 
-    const light = document.createElement('a-entity');
-    light.setAttribute('position', `${pos.x} ${pos.y} ${pos.z}`);
-    light.setAttribute('light', 'type: point; color: #ff0000; intensity: 2; distance: 6; decay: 2');
-    light.setAttribute('animation__dim', {
-      property: 'light.intensity', from: 2, to: 0,
-      dur: 800, easing: 'easeInQuad'
-    });
-    scene.appendChild(light);
-    setTimeout(() => { if (light.parentNode) light.parentNode.removeChild(light); }, 850);
+    // Performance: Removed point light - ring emissive material provides visual feedback
 
     if (window.__spawnGPUBurst) {
       window.__spawnGPUBurst(scene, pos, {
@@ -508,11 +518,21 @@ export default class TargetSpawner {
   // ===================== Material & Movement =====================
 
   _applyPrimitiveMaterial(el, type, typeId, color, settings) {
+    // TASK-455: Use flat shader on Quest (no PBR calculations)
+    if (_isQuest) {
+      el.setAttribute('material', `shader: flat; color: ${color}`);
+      // TASK-454: Skip shadow attribute on Quest
+      // TASK-451: Skip wireframe overlay on Quest (no child elements)
+      return;
+    }
+
+    // Desktop: Full PBR material with shadows and wireframe
     const matProps = TARGET_MATERIALS[typeId] || TARGET_MATERIALS.standard;
     const emissive = remapColor(matProps.emissive, settings);
     el.setAttribute('material', `color: ${color}; metalness: ${matProps.metalness}; roughness: ${matProps.roughness}; emissive: ${emissive}; emissiveIntensity: ${matProps.emissiveIntensity}`);
     el.setAttribute('shadow', 'cast: true; receive: false');
 
+    // Wireframe overlay for visual effect (desktop only)
     if (typeId !== 'decoy') {
       const wire = document.createElement(type.geometry === 'a-torus' ? 'a-torus' : type.geometry === 'a-torus-knot' ? 'a-torus-knot' : 'a-sphere');
       if (type.geometry === 'a-torus') {

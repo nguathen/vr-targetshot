@@ -3,6 +3,10 @@
  * Environment responds to gameplay events: boss spawn, combos, kill streaks, game over.
  */
 
+// TASK-422: Quest detection for performance
+const _isQuest = typeof window !== 'undefined' &&
+  (window.__isQuestDevice || /Quest|Android|Mobile/i.test(navigator.userAgent));
+
 class ArenaReactions {
   constructor() {
     this._scene = null;
@@ -16,6 +20,12 @@ class ArenaReactions {
   }
 
   init(sceneEl) {
+    // TASK-422: Skip all arena reactions on Quest for performance
+    if (_isQuest) {
+      console.log('[arena-reactions] Disabled on Quest for performance');
+      return;
+    }
+
     this._scene = sceneEl;
     this._active = true;
 

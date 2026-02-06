@@ -7,10 +7,15 @@
  *   <a-entity gpu-particles="preset: rain; count: 2000; color: #00d4ff">
  *   <a-entity gpu-particles="preset: burst; count: 15; color: #ff4444; oneShot: true">
  */
+
+// TASK-437: Quest detection for disabling GPU particles entirely
+const _isQuestGP = typeof window !== 'undefined' &&
+  (window.__isQuestGPDevice || /Quest|Android|Mobile/i.test(navigator.userAgent));
+
 AFRAME.registerComponent('gpu-particles', {
   schema: {
     preset: { type: 'string', default: 'ambient' }, // ambient, rain, dust, bubbles, starfield, burst, muzzle, powerup, explosion, smoke, trail
-    count: { type: 'int', default: 500 },
+    count: { type: 'int', default: 200 }, // TASK-407: Reduced from 500 for Quest performance
     color: { type: 'color', default: '#ffffff' },
     color2: { type: 'color', default: '' },
     size: { type: 'number', default: 0.03 },
@@ -31,13 +36,22 @@ AFRAME.registerComponent('gpu-particles', {
     this._dead = false;
     this._oneShotDone = false;
 
+    // TASK-437: Disable GPU particles entirely on Quest for performance
+    if (_isQuestGP) {
+      console.log('[gpu-particles] Disabled on Quest for performance');
+      return;
+    }
+
     if (!this.data.enabled) return;
     this._build();
   },
 
   _build() {
     const data = this.data;
-    const count = data.count;
+    // TASK-407: Cap particle count on Quest/mobile GPU
+    const isMobileGPU = /Quest|Android|Mobile/i.test(navigator.userAgent);
+    const maxMobileCount = 100;
+    const count = isMobileGPU ? Math.min(data.count, maxMobileCount) : data.count;
 
     // Attributes
     const positions = new Float32Array(count * 3);
@@ -523,6 +537,9 @@ AFRAME.registerComponent('gpu-particles', {
  * Returns the created entity for optional reference.
  */
 window.__spawnGPUBurst = function (scene, pos, opts = {}) {
+  // TASK-437: Skip on Quest for performance
+  if (_isQuestGP) return null;
+
   const el = document.createElement('a-entity');
   el.setAttribute('position', `${pos.x} ${pos.y} ${pos.z}`);
   el.setAttribute('gpu-particles', {

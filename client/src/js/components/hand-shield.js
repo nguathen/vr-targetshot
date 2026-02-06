@@ -5,12 +5,27 @@
  *
  * Usage: <a-entity hand-shield>
  */
+
+// TASK-459: Quest detection for disabling shield component
+const _isQuestHS = typeof window !== 'undefined' &&
+  (window.__isQuestHSDevice || /Quest|Android|Mobile/i.test(navigator.userAgent));
+
 AFRAME.registerComponent('hand-shield', {
   init() {
+    // TASK-459: Disable hand-shield on Quest for performance
+    if (_isQuestHS) {
+      console.log('[hand-shield] Disabled on Quest for performance');
+      return;
+    }
+
     this._active = false;
     this._cooldownUntil = 0;
     this._shieldEl = null;
     this._rechargeEl = null;
+
+    // TASK-456: Pre-allocate vectors for GC-free tick()
+    this._camPos = new THREE.Vector3();
+    this._handPos = new THREE.Vector3();
 
     // Create shield visual (hidden by default)
     const shield = document.createElement('a-sphere');
@@ -46,8 +61,9 @@ AFRAME.registerComponent('hand-shield', {
     const cam = document.getElementById('camera');
     if (!cam?.object3D || !this.el.object3D) return;
 
-    const camY = cam.object3D.getWorldPosition(new THREE.Vector3()).y;
-    const handY = this.el.object3D.getWorldPosition(new THREE.Vector3()).y;
+    // TASK-456: GC-free - reuse pre-allocated vectors
+    const camY = cam.object3D.getWorldPosition(this._camPos).y;
+    const handY = this.el.object3D.getWorldPosition(this._handPos).y;
     const now = Date.now();
     const onCooldown = now < this._cooldownUntil;
 

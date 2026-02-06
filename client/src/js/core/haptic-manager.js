@@ -7,6 +7,7 @@ import { getSettings } from '../game/settings-util.js';
  */
 class HapticManager {
   pulse(intensity, duration) {
+
     const settings = getSettings();
     const scale = (settings.vibration ?? 50) / 100;
     if (scale === 0) return;

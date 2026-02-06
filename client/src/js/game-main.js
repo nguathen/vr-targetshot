@@ -11,7 +11,7 @@ import { checkProgress } from './game/daily-challenge.js';
 import { checkAchievements } from './game/achievements.js';
 import { applyTheme } from './game/environment-themes.js';
 import { getSkinOverrides } from './game/weapon-skins.js';
-import { getSettings, getLevelScaledDifficulty, isVRMode, isQuestDevice, applyQuestPresetIfNeeded } from './game/settings-util.js';
+import { getSettings, getLevelScaledDifficulty } from './game/settings-util.js';
 import musicManager from './core/music-manager.js';
 import { buildSummary } from './game/game-summary.js';
 import powerUpManager from './game/power-up-manager.js';
@@ -23,7 +23,6 @@ import { checkNewUnlocks } from './game/unlock-tooltips.js';
 import { showAchievementToasts } from './game/achievement-toast.js';
 import { getRank } from './game/rank-system.js';
 import tensionSystem from './game/tension-system.js';
-import { preWarm as preWarmTargetModels } from './game/target-models.js';
 
 const COUNTDOWN_FROM = 3;
 
@@ -91,9 +90,6 @@ window.__audioManager = audioManager;
 window.__getSettings = getSettings;
 
 export function startGame({ mode, weapon, theme, onReturnToMenu }) {
-  // TASK-394: Auto-apply Quest VR quality preset on first load
-  applyQuestPresetIfNeeded();
-
   if (mode) gameModeManager.select(mode);
   if (weapon) weaponSystem.select(weapon);
   _onReturnToMenu = onReturnToMenu;
@@ -103,27 +99,16 @@ export function startGame({ mode, weapon, theme, onReturnToMenu }) {
     _initialized = true;
   }
   _initRound(theme);
+
+  // Dismiss VR loading screen now that game is ready (VRC.Quest.Performance.3)
+  var sceneEl = document.querySelector('a-scene');
+  if (sceneEl) sceneEl.emit('vr-loading-screen:dismiss');
 }
 
 // DOM refs (set once)
 let _hudScore, _hudTimer, _hudCombo, _hudLives, _hudWeapon, _hudLevel, _hudPowerup, _hudReaction, _hudColorMatch;
 let _hudAccuracy, _hudPbPace, _hudStreak, _hudSurge, _hudDebuff;
 let _scene, _btnQuitVr;
-
-// V36 TASK-470: Quest thermal monitoring state
-let _originalBloomStrength = 0.3; // Will be read from scene attribute
-let _thermalQualityActive = false;
-
-// TASK-388: Cached DOM queries to avoid per-event overhead
-let _cachedLights = [];
-let _cachedBarriers = [];
-let _cachedPillarToruses = [];
-let _lastBarrierGlowTime = 0;
-
-// V39 TASK-480: HUD value caching and debouncing
-let _lastScoreValue = '';
-let _lastTimerValue = '';
-let _lastAccuracyUpdate = 0;
 
 function _initOnce() {
   _hudScore = document.getElementById('hud-score');
@@ -138,7 +123,7 @@ function _initOnce() {
   _hudPbPace = document.getElementById('hud-pb-pace');
   _hudStreak = document.getElementById('hud-streak');
   _hudSurge = document.getElementById('hud-surge');
-  _hudDebuff = document.getElementById('hud-debuff'); // V36 TASK-470: Thermal warning HUD
+  _hudDebuff = document.getElementById('hud-debuff');
   _hudColorMatch = document.getElementById('hud-color-match');
   _scene = document.getElementById('scene');
   _btnQuitVr = document.getElementById('btn-quit-vr');
@@ -163,52 +148,24 @@ function _initOnce() {
     }
   }
 
-  // V36 TASK-470: Quest thermal monitoring and auto-quality
-  if (isQuestDevice() && _scene && typeof window.QuestMonitor !== 'undefined') {
-    // Store original bloom strength
-    const bloomComp = _scene.components['bloom-effect'];
-    if (bloomComp) {
-      _originalBloomStrength = bloomComp.data.strength;
+  // TASK-414/410: VR mode and Quest detection for CSS performance optimization
+  const sceneEl = document.querySelector('a-scene');
+  if (sceneEl) {
+    // Add .quest-mode on Quest/mobile for CSS simplification (TASK-410, TASK-412)
+    const isMobileGPU = /Quest|Android|Mobile/i.test(navigator.userAgent);
+    if (isMobileGPU) {
+      document.body.classList.add('quest-mode');
+      console.log('[game-main] Quest/mobile detected - enabling CSS optimization');
     }
 
-    // Enable automatic quality reduction on thermal warnings
-    window.QuestMonitor.enableAutoQuality(_scene);
-    console.log('[game-main] Quest thermal monitoring enabled');
-
-    // Listen for thermal state changes
-    _scene.addEventListener('thermal-quality-change', (e) => {
-      const state = e.detail?.state;
-      const pixelRatio = e.detail?.pixelRatio;
-      console.log(`[game-main] Thermal state: ${state}, pixelRatio: ${pixelRatio}`);
-
-      if (state === 'hot') {
-        // Aggressive reduction: disable bloom and weather, show warning
-        _scene.setAttribute('bloom-effect', 'strength', 0.0);
-        weatherSystem.setEnabled(false); // Disable weather particles
-        _thermalQualityActive = true;
-        if (_hudDebuff) {
-          _hudDebuff.setAttribute('visible', 'true');
-          _hudDebuff.setAttribute('value', 'THERMAL HOT - Quality: LOW');
-          _hudDebuff.setAttribute('color', '#ff4444');
-        }
-      } else if (state === 'warm') {
-        // Moderate reduction: reduce bloom to 0.15, keep weather enabled
-        _scene.setAttribute('bloom-effect', 'strength', 0.15);
-        _thermalQualityActive = true;
-        if (_hudDebuff) {
-          _hudDebuff.setAttribute('visible', 'true');
-          _hudDebuff.setAttribute('value', 'THERMAL WARM - Quality: MEDIUM');
-          _hudDebuff.setAttribute('color', '#ffaa44');
-        }
-      } else if (state === 'normal') {
-        // Restore full quality
-        _scene.setAttribute('bloom-effect', 'strength', _originalBloomStrength);
-        weatherSystem.setEnabled(true); // Re-enable weather
-        _thermalQualityActive = false;
-        if (_hudDebuff) {
-          _hudDebuff.setAttribute('visible', 'false');
-        }
-      }
+    // Toggle .vr-mode on enter/exit VR (TASK-414, TASK-413)
+    sceneEl.addEventListener('enter-vr', () => {
+      document.body.classList.add('vr-mode');
+      console.log('[game-main] Entered VR - hiding CSS overlays for performance');
+    });
+    sceneEl.addEventListener('exit-vr', () => {
+      document.body.classList.remove('vr-mode');
+      console.log('[game-main] Exited VR - restoring CSS overlays');
     });
   }
 
@@ -307,13 +264,11 @@ function _initOnce() {
     _hudColorMatch.setAttribute('value', `SHOOT: ${emoji}`);
     _hudColorMatch.setAttribute('color', color);
     _hudColorMatch.setAttribute('visible', 'true');
-    // V39 TASK-481: Skip HUD animations on Quest
-    if (!(typeof VRCore !== 'undefined' && VRCore.isQuest && VRCore.isQuest())) {
-      _hudColorMatch.setAttribute('animation__flash', {
-        property: 'scale', from: '0.5 0.5 0.5', to: '0.35 0.35 0.35',
-        dur: 200, easing: 'easeOutBack',
-      });
-    }
+    // Flash animation
+    _hudColorMatch.setAttribute('animation__flash', {
+      property: 'scale', from: '0.5 0.5 0.5', to: '0.35 0.35 0.35',
+      dur: 200, easing: 'easeOutBack',
+    });
   });
 
   // TASK-311: Surge event HUD
@@ -321,13 +276,10 @@ function _initOnce() {
     if (!_hudSurge) return;
     _hudSurge.setAttribute('value', '⚡ SURGE!');
     _hudSurge.setAttribute('visible', 'true');
-    // V39 TASK-481: Skip HUD animations on Quest
-    if (!(typeof VRCore !== 'undefined' && VRCore.isQuest && VRCore.isQuest())) {
-      _hudSurge.setAttribute('animation__pop', {
-        property: 'scale', from: '0.6 0.6 0.6', to: '0.4 0.4 0.4',
-        dur: 200, easing: 'easeOutBack',
-      });
-    }
+    _hudSurge.setAttribute('animation__pop', {
+      property: 'scale', from: '0.6 0.6 0.6', to: '0.4 0.4 0.4',
+      dur: 200, easing: 'easeOutBack',
+    });
     audioManager.playGo?.();
   });
 
@@ -419,13 +371,10 @@ function _initOnce() {
     if (_hudCombo) {
       _hudCombo.setAttribute('value', `WAVE ${e.detail.wave} CLEAR!`);
       _hudCombo.setAttribute('color', '#ffd700');
-      // V39 TASK-481: Skip HUD animations on Quest
-      if (!(typeof VRCore !== 'undefined' && VRCore.isQuest && VRCore.isQuest())) {
-        _hudCombo.setAttribute('animation__pop', {
-          property: 'scale', from: '0.6 0.6 0.6', to: '0.4 0.4 0.4',
-          dur: 300, easing: 'easeOutElastic',
-        });
-      }
+      _hudCombo.setAttribute('animation__pop', {
+        property: 'scale', from: '0.6 0.6 0.6', to: '0.4 0.4 0.4',
+        dur: 300, easing: 'easeOutElastic',
+      });
       setTimeout(() => _hudCombo.setAttribute('value', ''), 2000);
     }
   });
@@ -438,19 +387,19 @@ function _initOnce() {
     if (_hudCombo) {
       _hudCombo.setAttribute('value', name);
       _hudCombo.setAttribute('color', '#ff8800');
-      // V39 TASK-481: Skip HUD animations on Quest
-      if (!(typeof VRCore !== 'undefined' && VRCore.isQuest && VRCore.isQuest())) {
-        _hudCombo.setAttribute('animation__pop', {
-          property: 'scale', from: '0.6 0.6 0.6', to: '0.4 0.4 0.4',
-          dur: 300, easing: 'easeOutElastic',
-        });
-      }
+      _hudCombo.setAttribute('animation__pop', {
+        property: 'scale', from: '0.6 0.6 0.6', to: '0.4 0.4 0.4',
+        dur: 300, easing: 'easeOutElastic',
+      });
       setTimeout(() => { if (_hudCombo) _hudCombo.setAttribute('value', ''); }, 2000);
     }
   });
 }
 
 function _showSlowMoOverlay() {
+  // TASK-441: Skip DOM creation on Quest - no element = no computation
+  if (window.__isQuestDevice) return;
+
   let overlay = document.getElementById('slow-mo-overlay');
   if (!overlay) {
     overlay = document.createElement('div');
@@ -463,6 +412,9 @@ function _showSlowMoOverlay() {
 }
 
 function _hideSlowMoOverlay() {
+  // TASK-441: Skip on Quest
+  if (window.__isQuestDevice) return;
+
   const overlay = document.getElementById('slow-mo-overlay');
   if (overlay) overlay.classList.remove('active');
 }
@@ -479,11 +431,10 @@ function _activateLastStand() {
   }
   // Faster heartbeat
   tensionSystem.setHeartbeatRate?.(350);
-  // TASK-387: Reduced shake interval from 200ms to 500ms (2x/sec instead of 5x/sec)
-  // Lower frequency is still perceptible but reduces event overhead
+  // Micro camera shake
   _lastStandShakeTimer = setInterval(() => {
     document.dispatchEvent(new CustomEvent('camera-shake', { detail: { intensity: 0.005, duration: 50 } }));
-  }, 500);
+  }, 200);
   // HUD
   if (_hudCombo) {
     _hudCombo.setAttribute('value', '💀 LAST STAND');
@@ -553,8 +504,11 @@ function _startDarknessWave() {
   _darknessPhaseTimeout = setTimeout(() => {
     if (!_darknessActive) return;
     audioManager.playDarknessStart?.();
-    // TASK-388: Use cached lights instead of DOM query
-    _cachedLights.forEach(l => {
+    const gc = _scene?.querySelector('#game-content') || _scene;
+    if (!gc) return;
+    // Dim all lights
+    const lights = gc.querySelectorAll('a-light');
+    lights.forEach(l => {
       l._origIntensity = parseFloat(l.getAttribute('intensity') || '0.6');
       l.setAttribute('animation__dark', {
         property: 'intensity', to: l._origIntensity * 0.1,
@@ -584,15 +538,18 @@ function _endDarknessWave() {
   if (!_darknessActive) return;
   _darknessActive = false;
   window.__darknessActive = false;
-  // TASK-388: Use cached lights instead of DOM query
-  _cachedLights.forEach(l => {
-    if (l._origIntensity !== undefined) {
-      l.setAttribute('animation__dark', {
-        property: 'intensity', to: l._origIntensity,
-        dur: 2000, easing: 'easeOutQuad',
-      });
-    }
-  });
+  const gc = _scene?.querySelector('#game-content') || _scene;
+  if (gc) {
+    const lights = gc.querySelectorAll('a-light');
+    lights.forEach(l => {
+      if (l._origIntensity !== undefined) {
+        l.setAttribute('animation__dark', {
+          property: 'intensity', to: l._origIntensity,
+          dur: 2000, easing: 'easeOutQuad',
+        });
+      }
+    });
+  }
   document.dispatchEvent(new CustomEvent('darkness-active', { detail: { active: false } }));
   _resolveSpawnRate();
   if (_hudCombo) {
@@ -632,16 +589,14 @@ function _startOvertime() {
     dur: 300, loop: true, dir: 'alternate', easing: 'easeInOutSine',
   });
 
-  // TASK-387: Changed from 100ms to 1000ms to reduce GC pressure
-  // HUD updates only on whole second change, not 10x/sec
   _overtimeTimer = setInterval(() => {
-    _overtimeTime -= 1;
-    if (_hudTimer) _hudTimer.setAttribute('value', `OT: ${Math.max(0, _overtimeTime).toFixed(0)}s`);
-    audioManager.playOvertimeTick?.();
+    _overtimeTime -= 0.1;
+    if (_hudTimer) _hudTimer.setAttribute('value', `OT: ${_overtimeTime.toFixed(1)}s`);
+    if (_overtimeTime % 1 < 0.15) audioManager.playOvertimeTick?.();
     if (_overtimeTime <= 0) {
       _endOvertime();
     }
-  }, 1000);
+  }, 100);
 }
 
 function _endOvertime() {
@@ -685,15 +640,6 @@ function _initRound(themeParam) {
 
   // TASK-262: Arena reactions
   arenaReactions.init(_scene);
-
-  // TASK-388: Cache arena DOM elements for combo/darkness updates
-  const gc = _scene?.querySelector('#game-content') || _scene;
-  if (gc) {
-    _cachedLights = Array.from(gc.querySelectorAll('a-light'));
-    _cachedBarriers = Array.from(gc.querySelectorAll('.arena-barrier'));
-    _cachedPillarToruses = Array.from(gc.querySelectorAll('.arena-pillar a-torus'));
-  }
-  _lastBarrierGlowTime = 0;
 
   // V19: Tension system (vignette, surge, debuffs, arena walls)
   tensionSystem.start(_scene);
@@ -775,9 +721,6 @@ function _initRound(themeParam) {
 
   _updateLivesDisplay();
 
-  // TASK-382: Pre-warm target models during loading (before countdown)
-  preWarmTargetModels();
-
   // Ambient environment motion
   _startAmbientMotion(_scene);
 
@@ -799,19 +742,12 @@ function _initRound(themeParam) {
 
   scoreManager.clearListeners();
   scoreManager.onChange(score => {
-    // V39 TASK-480: Cache last value, only update if changed
-    const newValue = `Score: ${score}`;
-    if (newValue !== _lastScoreValue) {
-      _hudScore.setAttribute('value', newValue);
-      _lastScoreValue = newValue;
-    }
-    // V39 TASK-481: Skip score pop animation on Quest
-    if (!(typeof VRCore !== 'undefined' && VRCore.isQuest && VRCore.isQuest())) {
-      _hudScore.setAttribute('animation__pop', {
-        property: 'scale', from: '0.42 0.42 0.42', to: '0.35 0.35 0.35',
-        dur: 150, easing: 'easeOutQuad',
-      });
-    }
+    _hudScore.setAttribute('value', `Score: ${score}`);
+    // Score pop animation
+    _hudScore.setAttribute('animation__pop', {
+      property: 'scale', from: '0.42 0.42 0.42', to: '0.35 0.35 0.35',
+      dur: 150, easing: 'easeOutQuad',
+    });
 
     // TASK-314 + TASK-354: PB Pace indicator with ghost comparison
     if (_hudPbPace && _pbBestScore > 0) {
@@ -886,7 +822,7 @@ function _initRound(themeParam) {
       tensionSystem.checkSurge(wave);
       // TASK-313: Arena wall shrink
       const arenaScale = tensionSystem.updateArenaForWave(wave);
-      if (arenaScale < 1.0 && targetSystem._pick360Position) {
+      if (arenaScale < 1.0 && targetSystem.pick360Position) {
         // Arena scale is handled via SPAWN constants adjustment in target system
       }
     }
@@ -1079,45 +1015,103 @@ const THEME_PARTICLES = {
 };
 
 function _spawnAmbientParticles(sceneEl) {
+  // V40: Skip ALL ambient particles on Quest
+  if (window.__isQuestDevice) {
+    console.log('[V40] _spawnAmbientParticles: Disabled on Quest');
+    return;
+  }
   const palette = THEME_PARTICLES[_selectedTheme] || THEME_PARTICLES.cyber;
   const settings = typeof getSettings === 'function' ? getSettings() : {};
 
   // TASK-320: Use GPU particles when available
   if (settings.particles !== 'off' && AFRAME.components['gpu-particles']) {
-    // TASK-391: Drastically reduce particles in VR mode for 72 FPS
-    // Desktop: 1200 dust + 800 sparks = 2000 total
-    // VR: 120 dust + 80 sparks = 200 total (10% of desktop)
-    const vrMode = isVRMode() || isQuestDevice() || settings.particles === 'vr';
-    let dustCount, sparksCount;
-
-    if (vrMode) {
-      dustCount = 120;
-      sparksCount = 80;
-    } else if (settings.particles === 'low') {
-      dustCount = 600;
-      sparksCount = 400;
-    } else {
-      dustCount = 1200;
-      sparksCount = 800;
-    }
+    const countMul = settings.particles === 'low' ? 0.5 : 1;
 
     // Dust motes
     const dust = document.createElement('a-entity');
     dust.setAttribute('class', 'ambient-particle');
-    dust.setAttribute('gpu-particles', `preset: dust; count: ${dustCount}; color: ${palette.dust}; area: 28; height: 5; opacity: 0.15`);
+    dust.setAttribute('gpu-particles', `preset: dust; count: ${Math.round(1200 * countMul)}; color: ${palette.dust}; area: 28; height: 5; opacity: 0.15`);
     sceneEl.appendChild(dust);
 
     // Energy sparks
     const sparks = document.createElement('a-entity');
     sparks.setAttribute('class', 'ambient-particle');
-    sparks.setAttribute('gpu-particles', `preset: ambient; count: ${sparksCount}; color: ${palette.sparks}; area: 24; height: 4; opacity: 0.4; size: 0.008`);
+    sparks.setAttribute('gpu-particles', `preset: ambient; count: ${Math.round(800 * countMul)}; color: ${palette.sparks}; area: 24; height: 4; opacity: 0.4; size: 0.008`);
     sceneEl.appendChild(sparks);
 
-    if (vrMode) {
-      console.log(`[particles] VR mode: ${dustCount} dust + ${sparksCount} sparks = ${dustCount + sparksCount} total`);
-    }
+    return;
   }
-  // TASK-383: Legacy entity-based fallback removed — GPU particles only
+
+  // Legacy fallback: entity-based ambient particles
+  // --- Dust motes (40) ---
+  for (let i = 0; i < 40; i++) {
+    const p = document.createElement('a-sphere');
+    const x = (Math.random() - 0.5) * 28;
+    const y = Math.random() * 5 + 0.3;
+    const z = (Math.random() - 0.5) * 28;
+    p.setAttribute('class', 'ambient-particle');
+    p.setAttribute('radius', String(0.008 + Math.random() * 0.012));
+    p.setAttribute('material', `shader: flat; color: ${palette.dust}; opacity: ${0.08 + Math.random() * 0.12}`);
+    p.setAttribute('position', `${x} ${y} ${z}`);
+    p.setAttribute('animation', {
+      property: 'position',
+      to: `${x + (Math.random() - 0.5) * 3} ${y + 0.5 + Math.random() * 1.5} ${z + (Math.random() - 0.5) * 3}`,
+      dur: 8000 + Math.random() * 6000,
+      easing: 'linear', loop: true, dir: 'alternate',
+    });
+    sceneEl.appendChild(p);
+  }
+
+  // --- Energy sparks (20) ---
+  for (let i = 0; i < 20; i++) {
+    const p = document.createElement('a-sphere');
+    const x = (Math.random() - 0.5) * 24;
+    const y = Math.random() * 4 + 1;
+    const z = (Math.random() - 0.5) * 24;
+    p.setAttribute('class', 'ambient-particle');
+    p.setAttribute('radius', String(0.006 + Math.random() * 0.008));
+    p.setAttribute('material', `shader: flat; color: ${palette.sparks}; opacity: ${0.3 + Math.random() * 0.4}`);
+    p.setAttribute('position', `${x} ${y} ${z}`);
+    p.setAttribute('animation__drift', {
+      property: 'position',
+      to: `${x + (Math.random() - 0.5) * 5} ${y + (Math.random() - 0.5) * 3} ${z + (Math.random() - 0.5) * 5}`,
+      dur: 2000 + Math.random() * 2000,
+      easing: 'easeInOutSine', loop: true, dir: 'alternate',
+    });
+    p.setAttribute('animation__twinkle', {
+      property: 'material.opacity', from: 0.1, to: 0.6 + Math.random() * 0.3,
+      dur: 600 + Math.random() * 800,
+      loop: true, dir: 'alternate', easing: 'easeInOutSine',
+    });
+    sceneEl.appendChild(p);
+  }
+
+  // --- Floating debris (10) ---
+  const debrisGeoms = ['a-icosahedron', 'a-octahedron', 'a-dodecahedron'];
+  for (let i = 0; i < 10; i++) {
+    const geom = debrisGeoms[Math.floor(Math.random() * debrisGeoms.length)];
+    const p = document.createElement(geom);
+    const x = (Math.random() - 0.5) * 26;
+    const y = Math.random() * 4 + 1;
+    const z = (Math.random() - 0.5) * 26;
+    p.setAttribute('class', 'ambient-particle');
+    p.setAttribute('radius', String(0.02 + Math.random() * 0.03));
+    p.setAttribute('material', `color: ${palette.debris}; metalness: 0.7; roughness: 0.3; emissive: ${palette.debris}; emissiveIntensity: 0.3; opacity: ${0.15 + Math.random() * 0.2}`);
+    p.setAttribute('position', `${x} ${y} ${z}`);
+    p.setAttribute('animation__float', {
+      property: 'position',
+      to: `${x + (Math.random() - 0.5) * 2} ${y + Math.random() * 2} ${z + (Math.random() - 0.5) * 2}`,
+      dur: 7000 + Math.random() * 5000,
+      easing: 'easeInOutSine', loop: true, dir: 'alternate',
+    });
+    p.setAttribute('animation__spin', {
+      property: 'rotation',
+      to: `${Math.random() * 360} ${Math.random() * 360} ${Math.random() * 360}`,
+      dur: 6000 + Math.random() * 6000,
+      easing: 'linear', loop: true,
+    });
+    sceneEl.appendChild(p);
+  }
 }
 
 /** Spawn burst particles on game events (target destroy, combo, power-up) */
@@ -1196,13 +1190,10 @@ function _startCountdown() {
     if (count > 0) {
       if (hudCountdown) {
         hudCountdown.setAttribute('value', String(count));
-        // V39 TASK-481: Skip countdown animations on Quest (GPU overhead)
-        if (!(typeof VRCore !== 'undefined' && VRCore.isQuest && VRCore.isQuest())) {
-          hudCountdown.setAttribute('animation__pop', {
-            property: 'scale', from: '1.0 1.0 1.0', to: '0.8 0.8 0.8',
-            dur: 300, easing: 'easeOutQuad',
-          });
-        }
+        hudCountdown.setAttribute('animation__pop', {
+          property: 'scale', from: '1.0 1.0 1.0', to: '0.8 0.8 0.8',
+          dur: 300, easing: 'easeOutQuad',
+        });
       }
       audioManager.playCountdownBeep();
       hapticManager.pulse(0.2, 30);
@@ -1210,13 +1201,10 @@ function _startCountdown() {
       if (hudCountdown) {
         hudCountdown.setAttribute('value', 'GO!');
         hudCountdown.setAttribute('color', '#ffaa00');
-        // V39 TASK-481: Skip countdown animations on Quest
-        if (!(typeof VRCore !== 'undefined' && VRCore.isQuest && VRCore.isQuest())) {
-          hudCountdown.setAttribute('animation__pop', {
-            property: 'scale', from: '1.2 1.2 1.2', to: '0.8 0.8 0.8',
-            dur: 400, easing: 'easeOutElastic',
-          });
-        }
+        hudCountdown.setAttribute('animation__pop', {
+          property: 'scale', from: '1.2 1.2 1.2', to: '0.8 0.8 0.8',
+          dur: 400, easing: 'easeOutElastic',
+        });
       }
       audioManager.playGo();
       clearInterval(countInterval);
@@ -1294,12 +1282,7 @@ function startRound() {
         return;
       }
       timeLeft--;
-      // V39 TASK-480: Cache timer value, only update if changed
-      const newValue = String(timeLeft);
-      if (newValue !== _lastTimerValue) {
-        _hudTimer.setAttribute('value', newValue);
-        _lastTimerValue = newValue;
-      }
+      _hudTimer.setAttribute('value', String(timeLeft));
 
       // TASK-310: Update tension for time pressure
       tensionSystem.updateDanger(gameModeManager.lives, gameModeManager.current.lives, timeLeft, gameModeManager.current.duration);
@@ -1311,22 +1294,16 @@ function startRound() {
       }
       if (timeLeft <= 5) {
         _hudTimer.setAttribute('color', '#ff0000');
-        // V39 TASK-481: Skip timer pulse animation on Quest
-        if (!(typeof VRCore !== 'undefined' && VRCore.isQuest && VRCore.isQuest())) {
-          _hudTimer.setAttribute('animation__pulse', {
-            property: 'scale', from: '0.35 0.35 0.35', to: '0.45 0.45 0.45',
-            dur: 400, loop: true, dir: 'alternate', easing: 'easeInOutSine',
-          });
-        }
+        _hudTimer.setAttribute('animation__pulse', {
+          property: 'scale', from: '0.35 0.35 0.35', to: '0.45 0.45 0.45',
+          dur: 400, loop: true, dir: 'alternate', easing: 'easeInOutSine',
+        });
       } else if (timeLeft <= 10) {
         _hudTimer.setAttribute('color', '#ff4444');
-        // V39 TASK-481: Skip timer pulse animation on Quest
-        if (!(typeof VRCore !== 'undefined' && VRCore.isQuest && VRCore.isQuest())) {
-          _hudTimer.setAttribute('animation__pulse', {
-            property: 'scale', from: '0.35 0.35 0.35', to: '0.42 0.42 0.42',
-            dur: 500, loop: true, dir: 'alternate', easing: 'easeInOutSine',
-          });
-        }
+        _hudTimer.setAttribute('animation__pulse', {
+          property: 'scale', from: '0.35 0.35 0.35', to: '0.42 0.42 0.42',
+          dur: 500, loop: true, dir: 'alternate', easing: 'easeInOutSine',
+        });
         // TASK-291: Final Rush — double spawn rate + announce
         if (timeLeft === 10) {
           targetSystem.setSpawnRate(Math.round(_originalSpawnInterval * 0.5));
@@ -1334,13 +1311,10 @@ function startRound() {
           if (_hudCombo) {
             _hudCombo.setAttribute('value', '⚡ FINAL RUSH!');
             _hudCombo.setAttribute('color', '#ff0000');
-            // V39 TASK-481: Skip HUD animation on Quest
-            if (!(typeof VRCore !== 'undefined' && VRCore.isQuest && VRCore.isQuest())) {
-              _hudCombo.setAttribute('animation__pop', {
-                property: 'scale', from: '0.7 0.7 0.7', to: '0.4 0.4 0.4',
-                dur: 400, easing: 'easeOutElastic',
-              });
-            }
+            _hudCombo.setAttribute('animation__pop', {
+              property: 'scale', from: '0.7 0.7 0.7', to: '0.4 0.4 0.4',
+              dur: 400, easing: 'easeOutElastic',
+            });
             setTimeout(() => { if (_hudCombo) _hudCombo.setAttribute('value', ''); }, 2000);
           }
           // Red vignette pulse
@@ -1676,6 +1650,9 @@ function _startAmbientMotion(sceneEl) {
 // === Combo Juice Helpers (TASK-227) ===
 
 function _updateComboVignette(combo) {
+  // TASK-440: Skip DOM creation on Quest - no element = no computation
+  if (window.__isQuestDevice) return;
+
   let vignette = document.getElementById('combo-vignette');
   if (!vignette) {
     vignette = document.createElement('div');
@@ -1697,16 +1674,8 @@ function _updateComboVignette(combo) {
 
 // TASK-314: Live accuracy HUD
 function _updateAccuracyHud() {
-  // V39 TASK-480: Debounce accuracy updates (max once per 500ms)
-  const now = Date.now();
-  if (now - _lastAccuracyUpdate < 500) return;
-  _lastAccuracyUpdate = now;
-
   if (!_hudAccuracy) return;
-  // V39 TASK-480: Use object3D.visible instead of setAttribute
-  if (!_hudAccuracy.object3D.visible) {
-    _hudAccuracy.object3D.visible = true;
-  }
+  _hudAccuracy.setAttribute('visible', 'true');
   const acc = _shotsFired > 0 ? Math.round((_shotsHit / _shotsFired) * 100) : 100;
   _hudAccuracy.setAttribute('value', `ACC: ${acc}%`);
   const color = acc > 90 ? '#44ff44' : acc > 70 ? '#ffff00' : '#ff4444';
@@ -1714,24 +1683,20 @@ function _updateAccuracyHud() {
 }
 
 function _updateBarrierComboGlow(combo) {
-  // TASK-388: Throttle barrier glow updates to max 1 per 100ms
-  const now = performance.now();
-  if (now - _lastBarrierGlowTime < 100) return;
-  _lastBarrierGlowTime = now;
-
-  // TASK-388: Use cached barriers instead of DOM query
+  const barriers = document.querySelectorAll('.arena-barrier');
   if (combo >= 10) {
-    _cachedBarriers.forEach(b => b.setAttribute('material', 'opacity', 0.06));
+    barriers.forEach(b => b.setAttribute('material', 'opacity', 0.06));
   } else if (combo >= 5) {
-    _cachedBarriers.forEach(b => b.setAttribute('material', 'opacity', 0.035));
+    barriers.forEach(b => b.setAttribute('material', 'opacity', 0.035));
   } else {
-    _cachedBarriers.forEach(b => b.setAttribute('material', 'opacity', 0.015));
+    barriers.forEach(b => b.setAttribute('material', 'opacity', 0.015));
   }
 
-  // TASK-388: Use cached pillar toruses — rotation speed scales with combo
+  // Pillar ring rotation speed scales with combo
+  const pillarToruses = document.querySelectorAll('.arena-pillar a-torus');
   const baseDur = 6000;
   const speedFactor = combo >= 15 ? 0.3 : combo >= 10 ? 0.5 : combo >= 5 ? 0.7 : 1.0;
-  _cachedPillarToruses.forEach((t, i) => {
+  pillarToruses.forEach((t, i) => {
     t.setAttribute('animation__combospin', 'dur', Math.round((baseDur + i * 500) * speedFactor));
   });
 }

@@ -2,80 +2,20 @@
  * Target feedback — combo lost, wave events, damage numbers, screen flash, slow-mo, multiplier zones.
  * Extracted from target-system.js (V27 refactor, TASK-373).
  * Uses composition: receives parent TargetSystem reference via constructor.
- * V30: Uses ObjectPool utility for GC-free pooling.
  */
 import audioManager from '../core/audio-manager.js';
 
-// V43 TASK-491: Cache Quest check to skip rapid animations
-const _isQuest = typeof VRCore !== 'undefined' && VRCore.isQuest && VRCore.isQuest();
+// V42: Quest detection - skip torus decorations
+const _isQuestTF = typeof window !== 'undefined' &&
+  (window.__isQuestDevice || /Quest|Android|Mobile/i.test(navigator.userAgent));
 
 export default class TargetFeedback {
   constructor(ts) {
     /** @type {import('./target-system.js').default} */
     this._ts = ts;
-    // V30 TASK-400: Use ObjectPool utility for damage numbers
-    this._damageNumberPool = null;
-    this._poolInitialized = false;
-  }
-
-  // V30 TASK-400: Initialize damage number pool using ObjectPool utility
-  _ensureDamagePool() {
-    if (this._poolInitialized) return;
-    this._poolInitialized = true;
-
-    const scene = this._ts._container?.sceneEl || document.querySelector('a-scene');
-    if (!scene || !window.ObjectPool) return;
-
-    // Create pool using ObjectPool.create() with factory function
-    this._damageNumberPool = window.ObjectPool.create(
-      () => {
-        const el = document.createElement('a-entity');
-        el.setAttribute('text', {
-          value: '',
-          align: 'center',
-          color: '#ffffff',
-          width: 4,
-          font: 'mozillavr',
-        });
-        el.setAttribute('look-at', '[camera]');
-        el.classList.add('damage-number-pooled');
-        scene.appendChild(el);
-        return el;
-      },
-      15, // Initial pool size
-      {
-        onGet: (el) => {
-          el.setAttribute('visible', 'true');
-        },
-        onRelease: (el) => {
-          el.setAttribute('visible', 'false');
-          el.removeAttribute('animation__rise');
-          el.removeAttribute('animation__fade');
-          el.removeAttribute('animation__grow');
-        },
-        maxSize: 30
-      }
-    );
-  }
-
-  // V30 TASK-400: Get entity from ObjectPool
-  _getDamageNumberFromPool() {
-    this._ensureDamagePool();
-    if (this._damageNumberPool) {
-      return this._damageNumberPool.get();
-    }
-    return null;
-  }
-
-  // V30 TASK-400: Return entity to pool
-  _releaseDamageNumber(el) {
-    if (this._damageNumberPool && el) {
-      this._damageNumberPool.release(el);
-    }
   }
 
   // TASK-367: Combo lost feedback — visual + audio when losing a high combo
-  // V30 TASK-402: Uses ScreenShake utility
   triggerComboLost(prevCombo, pos) {
     const ts = this._ts;
     const now = performance.now();
@@ -86,15 +26,11 @@ export default class TargetFeedback {
     document.dispatchEvent(new CustomEvent('hud-announce', {
       detail: { text: `COMBO LOST! ×${prevCombo}`, color: '#ff4444', duration: 1500 }
     }));
-    // V30 TASK-402: Camera shake using ScreenShake utility (fallback to event)
+    // Camera shake scaled by combo level
     const intensity = Math.min(prevCombo / 20, 1);
-    if (window.ScreenShake) {
-      window.ScreenShake.trigger(0.02 + intensity * 0.04, 300);
-    } else {
-      document.dispatchEvent(new CustomEvent('camera-shake', {
-        detail: { intensity: 0.02 + intensity * 0.04, duration: 300 }
-      }));
-    }
+    document.dispatchEvent(new CustomEvent('camera-shake', {
+      detail: { intensity: 0.02 + intensity * 0.04, duration: 300 }
+    }));
     // Red screen flash
     this.flashScreen('miss');
     // GPU particle burst at position (if available)
@@ -138,14 +74,11 @@ export default class TargetFeedback {
               z: -Math.cos(angle) * dist,
             };
             const el = ts._spawner.createEventTarget(pos, 0.15, '#ff69b4', 5, 1500);
-            // V43 TASK-491: Skip move animation on Quest (400-700ms loop → static position)
-            if (!_isQuest) {
-              el.setAttribute('animation__move', {
-                property: 'position',
-                to: `${pos.x + (Math.random() - 0.5) * 3} ${pos.y + (Math.random() - 0.5)} ${pos.z + (Math.random() - 0.5) * 3}`,
-                dur: 400 + Math.random() * 300, easing: 'easeInOutSine', loop: true, dir: 'alternate',
-              });
-            }
+            el.setAttribute('animation__move', {
+              property: 'position',
+              to: `${pos.x + (Math.random() - 0.5) * 3} ${pos.y + (Math.random() - 0.5)} ${pos.z + (Math.random() - 0.5) * 3}`,
+              dur: 400 + Math.random() * 300, easing: 'easeInOutSine', loop: true, dir: 'alternate',
+            });
           }
           break;
         }
@@ -156,7 +89,9 @@ export default class TargetFeedback {
           break;
         }
         case 'bonusRain': {
-          for (let i = 0; i < 8; i++) {
+          // V48: Reduce from 8 to 4 on Quest
+          const rainCount = _isQuestTF ? 4 : 8;
+          for (let i = 0; i < rainCount; i++) {
             setTimeout(() => {
               if (!ts._running) return;
               const pos = { x: (Math.random() - 0.5) * 10, y: 8, z: -3 - Math.random() * 8 };
@@ -165,15 +100,19 @@ export default class TargetFeedback {
                 property: 'position', to: `${pos.x} 0.3 ${pos.z}`,
                 dur: 2800, easing: 'easeInQuad',
               });
-            }, i * 150);
+            }, i * (_isQuestTF ? 200 : 150));
           }
           break;
         }
         case 'shieldWall': {
+          // V48: Reduce from 5 to 3 on Quest
+          const wallCount = _isQuestTF ? 3 : 5;
           const wallY = 1.5 + Math.random() * 2;
           const wallZ = -6 - Math.random() * 4;
-          for (let i = 0; i < 5; i++) {
-            const pos = { x: -3 + i * 1.5, y: wallY, z: wallZ };
+          for (let i = 0; i < wallCount; i++) {
+            const spacing = _isQuestTF ? 2 : 1.5;
+            const startX = _isQuestTF ? -2 : -3;
+            const pos = { x: startX + i * spacing, y: wallY, z: wallZ };
             const el = ts._spawner.createEventTarget(pos, 0.35, '#ff3333', 20, 8000);
             el.setAttribute('target-hit', `hp: 2; targetType: heavy`);
           }
@@ -188,25 +127,15 @@ export default class TargetFeedback {
     if (ts._slowMoActive) return;
     ts._slowMoActive = true;
 
-    // TASK-386: Optimized slow-motion — access Three.js animation mixer directly
-    // instead of DOM queries, batch all updates in single RAF
+    // Store original animation durations and slow them
     const animData = [];
-
-    // Single pass through targets, cache animation components
     ts._targets.forEach(el => {
-      const obj3D = el.object3D;
-      if (!obj3D) return;
-
-      // Access A-Frame animation components directly (no DOM query)
-      const comps = el.components;
       ['animation__move', 'animation__float', 'animation__rotate'].forEach(name => {
-        const comp = comps[name];
-        if (comp && comp.data && comp.data.dur) {
-          const origDur = comp.data.dur;
-          animData.push({ comp, origDur });
-          // Direct property update (no setAttribute)
-          comp.data.dur = origDur * 3;
-          if (comp.animation) comp.animation.duration = origDur * 3;
+        const attr = el.getAttribute(name);
+        if (attr && attr.dur) {
+          const origDur = attr.dur;
+          animData.push({ el, name, origDur });
+          el.setAttribute(name, 'dur', origDur * 3);
         }
       });
     });
@@ -218,14 +147,10 @@ export default class TargetFeedback {
     // Restore after 300ms
     ts._slowMoTimeout = setTimeout(() => {
       ts._slowMoActive = false;
-      // Batch restore in RAF to avoid frame stutter
-      requestAnimationFrame(() => {
-        animData.forEach(({ comp, origDur }) => {
-          if (comp && comp.el && comp.el.parentNode) {
-            comp.data.dur = origDur;
-            if (comp.animation) comp.animation.duration = origDur;
-          }
-        });
+      animData.forEach(({ el, name, origDur }) => {
+        if (el.parentNode) {
+          el.setAttribute(name, 'dur', origDur);
+        }
       });
       document.dispatchEvent(new CustomEvent('slow-motion', { detail: { active: false } }));
     }, 300);
@@ -237,45 +162,10 @@ export default class TargetFeedback {
     if (!scene) return;
 
     const text = points >= 0 ? `+${points}${suffix}` : `${points}`;
-
-    // V30 TASK-400: Use ObjectPool for damage numbers
-    let el = this._getDamageNumberFromPool();
-    if (el) {
-      // Reuse pooled entity (ObjectPool.onGet already sets visible=true)
-      el.object3D.position.set(pos.x, pos.y + 0.3, pos.z);
-      el.setAttribute('text', { value: text, color: color, opacity: 1 });
-      el.object3D.scale.set(0.5, 0.5, 0.5);
-
-      // Animate rise
-      el.setAttribute('animation__rise', {
-        property: 'position',
-        to: `${pos.x} ${pos.y + 0.9} ${pos.z}`,
-        dur: 800,
-        easing: 'easeOutQuad',
-      });
-      el.setAttribute('animation__fade', {
-        property: 'text.opacity',
-        to: 0,
-        dur: 800,
-        easing: 'easeInQuad',
-      });
-      el.setAttribute('animation__grow', {
-        property: 'scale',
-        from: '0.5 0.5 0.5',
-        to: '1 1 1',
-        dur: 200,
-        easing: 'easeOutBack',
-      });
-
-      // Return to pool after animation (ObjectPool.onRelease handles cleanup)
-      setTimeout(() => this._releaseDamageNumber(el), 850);
-    } else {
-      // Fallback: create new element (pool exhausted or not available)
-      el = document.createElement('a-entity');
-      el.setAttribute('position', `${pos.x} ${pos.y + 0.3} ${pos.z}`);
-      el.setAttribute('damage-number', `text: ${text}; color: ${color}`);
-      scene.appendChild(el);
-    }
+    const el = document.createElement('a-entity');
+    el.setAttribute('position', `${pos.x} ${pos.y + 0.3} ${pos.z}`);
+    el.setAttribute('damage-number', `text: ${text}; color: ${color}`);
+    scene.appendChild(el);
   }
 
   flashScreen(type) {
@@ -305,15 +195,13 @@ export default class TargetFeedback {
     const el = document.createElement('a-entity');
     el.setAttribute('position', `${x} ${y} ${z}`);
 
+    // V52: Quest gets slower animated ring
     const ring = document.createElement('a-torus');
     ring.setAttribute('radius', '1.5');
     ring.setAttribute('radius-tubular', '0.03');
     ring.setAttribute('material', 'shader: flat; color: #ffd700; opacity: 0.3; transparent: true');
-    // V43 TASK-492: Skip pulse on Quest (800ms loop), keep slow spin (4000ms is acceptable)
-    if (!_isQuest) {
-      ring.setAttribute('animation__pulse', { property: 'material.opacity', from: 0.2, to: 0.5, dur: 800, loop: true, dir: 'alternate' });
-    }
-    ring.setAttribute('animation__spin', { property: 'rotation', to: '0 360 0', dur: 4000, loop: true, easing: 'linear' });
+    ring.setAttribute('animation__pulse', { property: 'material.opacity', from: 0.2, to: 0.5, dur: _isQuestTF ? 1600 : 800, loop: true, dir: 'alternate' });
+    ring.setAttribute('animation__spin', { property: 'rotation', to: '0 360 0', dur: _isQuestTF ? 8000 : 4000, loop: true, easing: 'linear' });
     el.appendChild(ring);
 
     const label = document.createElement('a-text');

@@ -11,7 +11,7 @@ body {
   overflow: hidden;
 }
 
-/* Overlay menus */
+/* Overlay menus (TASK-399: removed backdrop-filter blur - expensive on Quest) */
 #overlay,
 #game-over-overlay,
 #shop-overlay {
@@ -24,34 +24,32 @@ body {
   align-items: center;
   justify-content: center;
   z-index: 999;
-  background: rgba(0, 0, 0, 0.7);
-  backdrop-filter: blur(10px);
+  background: #0a0a1a;
 }
 
 .hidden {
   display: none !important;
 }
 
-/* Quit button during gameplay - top-right corner */
+/* Quit button during gameplay - top-right corner (TASK-399: removed backdrop-filter) */
 .btn-quit {
   position: fixed;
   top: 16px;
   right: 20px;
   z-index: 1000;
-  background: rgba(255, 60, 60, 0.35);
-  border: 1px solid rgba(255, 60, 60, 0.6);
+  background: #3a1515;
+  border: 1px solid #663030;
   color: #ff8888;
   padding: 10px 18px;
   border-radius: 8px;
   font-size: 15px;
   font-weight: 600;
   cursor: pointer;
-  backdrop-filter: blur(6px);
   transition: background 0.2s;
   box-shadow: 0 2px 8px rgba(0,0,0,0.3);
 }
 .btn-quit:hover {
-  background: rgba(255, 60, 60, 0.45);
+  background: #4a2020;
 }
 
 .menu {
@@ -369,11 +367,12 @@ body {
   border-radius: 20px;
   letter-spacing: 2px;
   margin-bottom: 12px;
-  animation: badge-glow 1.5s ease-in-out infinite alternate;
+  /* TASK-411: Replaced box-shadow animation with opacity (cheaper on GPU) */
+  animation: badge-opacity-pulse 1.5s ease-in-out infinite alternate;
 }
-@keyframes badge-glow {
-  from { box-shadow: 0 0 8px rgba(255, 215, 0, 0.3); }
-  to { box-shadow: 0 0 20px rgba(255, 215, 0, 0.6); }
+@keyframes badge-opacity-pulse {
+  from { opacity: 0.85; transform: scale(1); }
+  to { opacity: 1; transform: scale(1.02); }
 }
 
 .score-section { margin-bottom: 12px; }
@@ -906,12 +905,11 @@ body {
   pointer-events: none;
 }
 .tutorial-box {
-  background: rgba(0, 0, 0, 0.85);
-  border: 1px solid rgba(0, 212, 255, 0.4);
+  background: #0a0a18;
+  border: 1px solid #0055aa;
   border-radius: 12px;
   padding: 20px 32px;
   text-align: center;
-  backdrop-filter: blur(8px);
   min-width: 320px;
 }
 .tutorial-step {
@@ -1210,4 +1208,50 @@ body {
 @keyframes fog-clear {
   0% { background: rgba(100, 100, 120, 0.5); }
   100% { background: rgba(100, 100, 120, 0); }
+}
+
+/* ===== V30 PERFORMANCE OPTIMIZATION ===== */
+
+/* TASK-414: Hide ALL CSS overlays in VR mode to eliminate GPU overhead */
+.vr-mode .tension-vignette,
+.vr-mode .combo-vignette,
+.vr-mode .slow-mo-overlay,
+.vr-mode .teleport-vignette,
+.vr-mode .debuff-fog-overlay,
+.vr-mode .hit-flash {
+  display: none !important;
+}
+
+/* TASK-413: Disable all CSS transitions in VR mode */
+.vr-mode * {
+  transition: none !important;
+  animation-play-state: paused !important;
+}
+
+/* TASK-411: Pause infinite animations when not active (desktop optimization) */
+.tension-vignette:not(.tension-active),
+.combo-vignette:not(.active) {
+  animation: none !important;
+}
+
+/* TASK-412: Quest/mobile GPU optimization - simpler visuals */
+.quest-mode .tension-vignette.tension-active {
+  background: rgba(255, 0, 0, 0.15) !important;
+  animation: none !important;
+}
+.quest-mode .tension-vignette.tension-critical {
+  background: rgba(255, 0, 0, 0.25) !important;
+}
+.quest-mode .tension-vignette.tension-golden {
+  background: rgba(255, 200, 0, 0.15) !important;
+}
+.quest-mode .combo-vignette.active {
+  background: rgba(100, 60, 255, 0.1) !important;
+  animation: none !important;
+}
+.quest-mode .slow-mo-overlay.active {
+  background: rgba(0, 100, 255, 0.08) !important;
+}
+.quest-mode .teleport-vignette.active {
+  background: rgba(0, 0, 0, 0.7) !important;
 }

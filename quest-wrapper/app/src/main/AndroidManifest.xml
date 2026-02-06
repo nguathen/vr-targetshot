@@ -44,9 +44,13 @@
             android:name="com.meta.horizon.platform.ovr.OCULUS_APP_ID"
             android:value="\ 34536747552582674" />
 
+        <!-- VRC.Quest.Performance.3: OS-level VR splash screen (head-tracked, instant) -->
+        <meta-data
+            android:name="com.oculus.ossplash"
+            android:value="true"/>
         <meta-data
             android:name="com.oculus.ossplash.background"
-            android:value="passthrough-contextual"/>
+            android:value="black"/>
 
         <activity android:name="LauncherActivity"
             android:alwaysRetainTaskState="true"

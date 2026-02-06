@@ -39,22 +39,31 @@ git diff --stat            # Uncommitted changes
 
 | Change Type | Section to Update |
 |-------------|-------------------|
-| New framework module | Framework API |
-| New game | Game Template Structure |
-| New A-Frame component | Framework API |
-| New server endpoint | Server |
-| New deploy/build step | Deployment Flow |
+| New API endpoint | Routes |
+| New service/manager | Core Services |
+| New A-Frame component | Directory Structure (components/) |
+| New data model | Data Models |
+| New integration | External Integrations |
 | New config | Configuration |
-| Quest/TWA change | Quest TWA Wrapper |
-| New VFX/Audio module | Framework API + `.claude/rules/game-design.md` |
 
-## Game Design Rules Reference
+## Performance Gate (BLOCKING - VR/Quest)
 
-For game features, always check `.claude/rules/game-design.md`:
-- **Performance budget:** 72fps Quest, <100 draw calls, <4 dynamic lights
-- **Game Feel:** Every action needs visual + audio + haptic feedback
-- **Accessibility:** Motion blur OFF, head bob OFF, comfort modes
-- **Framework modules:** AudioManager, ScreenShake, ObjectPool, Haptics, Analytics
+| Metric | Target | Hard Limit | Blocker? |
+|--------|--------|------------|----------|
+| **FPS** | 90 | 72 | YES |
+| **Dynamic Lights** | 2 | 4 | YES |
+| **Shadows** | 0 | 1 (justified) | YES |
+| **Active Entities** | 25 | 50 | YES |
+| **Draw Calls** | 50 | 100 | YES |
+
+### Design Review Checklist (MANDATORY)
+
+Before creating game/visual feature tasks:
+- [ ] Lights: max 2-4, NO shadows without justification
+- [ ] Entities: estimated active count < 50
+- [ ] Spawning: uses object pooling for dynamic entities
+- [ ] tick() functions: NO allocations (pre-allocated vectors)
+- [ ] Materials: prefer `shader: flat` for static objects
 
 ## ADR Template (for significant decisions)
 
@@ -66,40 +75,27 @@ For game features, always check `.claude/rules/game-design.md`:
 **Consequences:** Pros, cons, risks
 ```
 
-## Task Template (MANDATORY FORMAT - Orchestrator must parse this)
+## Task Template
 
 ```markdown
-### TASK-XXX [pending] [priority:high] [depends:none] [estimate:~XX lines]
-**Title:** Short descriptive title
-**Scope:** games/my-game/index.html, framework/module.js
+## TASK-XXX: [Title]
+**Priority:** High/Medium/Low
+**Status:** Pending
 **Assigned:** /dev
 
-**Description:**
-What needs to be done (1-3 sentences max).
+### Description
+[What needs to be done]
 
-**Acceptance Criteria:**
+### Acceptance Criteria
 - [ ] Criterion 1
 - [ ] Criterion 2
 
-**Notes:**
-- Any risks, edge cases, or context needed
+### Notes
+- Any risks, edge cases, context
 
-**Integration Impact:**
-- [ ] List OTHER files/configs affected by this change (e.g., selectors, event bindings, imports)
-- [ ] Specify data contracts: parameter units (ms vs s), index base (0 vs 1), return types
-- [ ] Note platform/framework limitations researched
+### Integration Impact
+- [ ] List OTHER files affected
 ```
-
-### Task Format Rules
-
-1. **Header line MUST follow exact format:** `### TASK-XXX [status] [priority:X] [depends:X] [estimate:~X lines]`
-2. **Status values:** `pending`, `in_progress`, `completed`, `blocked`
-3. **Priority values:** `critical`, `high`, `medium`, `low`
-4. **Dependencies:** `none` or comma-separated task IDs like `TASK-001,TASK-002`
-5. **Estimate:** Approximate lines of code changed, e.g. `~30 lines`
-6. **Scope:** List ALL files that will be created or modified
-7. **Each task should be ≤50 lines of code change.** If larger → split into subtasks
-8. **Tasks must be ordered** by dependency (dependents come after their dependencies)
 
 ## Handling Escalations
 
@@ -115,25 +111,20 @@ When /code-check or /test escalates:
 ```
          /tl (Plan → Design → Delegate)
               ↓
+         /pipeline (PRIMARY - auto dev→code-check→test)
+              │
     ┌─────────┼─────────┐
     ↓         ↓         ↓
-  /dev   /code-check  /test
+  /dev   /code-check  /test  (manual - for debugging)
     └─────────┴─────────┘
          Escalate back to /tl
 ```
 
 ## Run Pipeline (after delegating tasks)
 
-Runs the agent pipeline in background; log in `orchestratorlogsnohup.log`.
+**Recommended:** Tell user to run `/pipeline` - processes all pending tasks automatically.
 
-- **Bash / Git Bash / WSL:** `nohup python -m orchestrator >> orchestratorlogsnohup.log 2>&1 &`
-- **Windows PowerShell:** `Start-Process cmd -ArgumentList "/c","python -m orchestrator >> orchestratorlogsnohup.log 2>&1" -NoNewWindow -WorkingDirectory (Get-Location)`
-
-## Orchestrator Integration
-
-The Python orchestrator (`orchestrator/parser.py`) parses tasks from specs/tasks.md.
-Task header MUST match this regex: `### TASK-XXX [status] [priority:xxx] [depends:xxx] [estimate:xxx]`
-Required fields: `**Title:**`, `**Scope:**`, `**Assigned:**`, `**Description:**`, `**Acceptance Criteria:**`
+**Manual (debugging single task):** `/dev` → `/code-check` → `/test`
 
 ## Rules
 
@@ -142,10 +133,9 @@ Required fields: `**Title:**`, `**Scope:**`, `**Assigned:**`, `**Description:**`
 3. Keep it simple - Best solution is often simplest
 4. Prioritize ruthlessly - Not everything is P0
 5. Communicate clearly - Tasks must be unambiguous
-6. **Research before design** - Verify framework/platform capabilities before choosing approach
-7. **Scope includes side-effects** - If task adds a new interactive element, Scope MUST include all config files that reference similar elements (selectors, event handlers, routing, etc.)
-8. **Specify contracts** - Always document units (ms/s), index base (0/1), and expected return types in task Notes
+6. **Research before design** - Verify capabilities before choosing approach
+7. **Scope includes side-effects** - Include all affected files in task scope
+8. **Specify contracts** - Document units, index base, return types in task Notes
 
 ---
 **See also:** `.claude/rules/workflow.md`, `.claude/rules/security.md`, `.claude/rules/performance.md`
-**Context:** `.claude/contexts/research.md` (for exploration phase)

@@ -3,12 +3,11 @@
  * Attach to camera entity. Draws small arrows at screen edge pointing toward off-screen targets.
  *
  * Usage: <a-camera target-indicator>
- *
- * Performance: V36 TASK-465 - GC-free tick() via target cache and reusable vectors
  */
 
-// Module-level target cache (maintained by target-system.js)
-const _targetCache = new Set();
+// TASK-460: Quest detection for throttling
+const _isQuestTI = typeof window !== 'undefined' &&
+  (window.__isQuestDevice || /Quest|Android|Mobile/i.test(navigator.userAgent));
 
 AFRAME.registerComponent('target-indicator', {
   init() {
@@ -18,14 +17,14 @@ AFRAME.registerComponent('target-indicator', {
     this._camDir = new THREE.Vector3();
     this._camUp = new THREE.Vector3();
     this._targetPos = new THREE.Vector3();
-
-    // V36 TASK-465: Pre-allocated vectors for zero-alloc tick()
-    this._tempToTarget = new THREE.Vector3();
-    this._tempForward = new THREE.Vector3();
-    this._tempRight = new THREE.Vector3();
-    this._tempUpVec = new THREE.Vector3(0, 1, 0);
-
+    // TASK-393: Pre-allocate vectors for GC-free tick()
+    this._toTarget = new THREE.Vector3();
+    this._forward = new THREE.Vector3();
+    this._right = new THREE.Vector3();
+    this._upVec = new THREE.Vector3(0, 1, 0);
     this._audioMgr = null;
+    // TASK-460: Frame counter for Quest throttling
+    this._frameCount = 0;
     // Lazy-load audioManager (ES module)
     import('../core/audio-manager.js').then(m => { this._audioMgr = m.default; }).catch(() => {});
   },
@@ -35,6 +34,9 @@ AFRAME.registerComponent('target-indicator', {
   },
 
   tick() {
+    // TASK-460: Throttle to every 3rd frame on Quest (30 FPS indicator updates)
+    if (_isQuestTI && this._frameCount++ % 3 !== 0) return;
+
     const cam = this.el.object3D;
     if (!cam) return;
 
@@ -48,35 +50,36 @@ AFRAME.registerComponent('target-indicator', {
       this._audioMgr.updateListener(this._camWorldPos, this._camDir, this._camUp);
     }
 
-    // V36 TASK-465: Use cached targets instead of querySelectorAll
+    // TASK-390: Use cached targets instead of querySelectorAll in tick()
+    const targets = window.getTargetCache ? window.getTargetCache() : document.querySelectorAll('.target');
     let idx = 0;
 
-    _targetCache.forEach(t => {
+    targets.forEach(t => {
       if (!t.object3D) return;
       t.object3D.getWorldPosition(this._targetPos);
 
-      // Vector from camera to target (reuse _tempToTarget)
-      this._tempToTarget.copy(this._targetPos).sub(this._camWorldPos);
-      this._tempToTarget.y = 0; // project to XZ plane
+      // TASK-393: GC-free - reuse pre-allocated vectors
+      // Vector from camera to target
+      this._toTarget.copy(this._targetPos).sub(this._camWorldPos);
+      this._toTarget.y = 0; // project to XZ plane
 
-      // Forward vector (reuse _tempForward)
-      this._tempForward.copy(this._camDir);
-      this._tempForward.y = 0;
-      this._tempForward.normalize();
+      this._forward.copy(this._camDir);
+      this._forward.y = 0;
+      this._forward.normalize();
 
-      if (this._tempToTarget.length() < 0.5) return;
-      this._tempToTarget.normalize();
+      if (this._toTarget.length() < 0.5) return;
+      this._toTarget.normalize();
 
       // Dot product: how much in front
-      const dot = this._tempForward.dot(this._tempToTarget);
+      const dot = this._forward.dot(this._toTarget);
 
       // Only show arrow for targets behind or far to the side (dot < 0.3 = ~73° off center)
       if (dot > 0.3) return;
 
-      // Get angle relative to forward on XZ plane (reuse _tempRight and _tempUpVec)
-      this._tempRight.crossVectors(this._tempForward, this._tempUpVec).normalize();
-      const angleX = this._tempRight.dot(this._tempToTarget);  // positive = right
-      const angleY = this._tempForward.dot(this._tempToTarget); // positive = front
+      // Get angle relative to forward on XZ plane (GC-free)
+      this._right.crossVectors(this._forward, this._upVec).normalize();
+      const angleX = this._right.dot(this._toTarget);  // positive = right
+      const angleY = this._forward.dot(this._toTarget); // positive = front
 
       // Position arrow on a circle at edge of HUD
       const hudRadius = 0.18;
@@ -118,6 +121,3 @@ AFRAME.registerComponent('target-indicator', {
     return arrow;
   },
 });
-
-// V36 TASK-465: Expose target cache for target-system.js to maintain
-window.__targetCache = _targetCache;

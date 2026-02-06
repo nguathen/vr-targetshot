@@ -10,6 +10,14 @@ import TargetFeedback from './target-feedback.js';
 
 const BASE_POINTS = 10;
 
+// TASK-425: Quest detection for performance
+const _isQuest = typeof window !== 'undefined' &&
+  (window.__isQuestDevice || /Quest|Android|Mobile/i.test(navigator.userAgent));
+
+// TASK-389: Global target cache for O(1) lookup (avoids querySelectorAll in hot paths)
+const _targetCache = new Set();
+export function getTargetCache() { return _targetCache; }
+
 class TargetSystem {
   constructor(containerEl, config = {}) {
     this._container = containerEl;
@@ -25,7 +33,10 @@ class TargetSystem {
 
     // Configurable per game mode
     this._spawnInterval = config.spawnInterval || 1500;
-    this._maxTargets = config.maxTargets || 8;
+    // TASK-469: V38 DEBUG - Reduce to 1 target on Quest to isolate FPS issue
+    const defaultMaxTargets = _isQuest ? 1 : 8;
+    this._maxTargets = config.maxTargets || defaultMaxTargets;
+    if (_isQuest) console.log('[V38 DEBUG] Max targets = 1 on Quest for testing');
     this._targetLifetime = config.targetLifetime || 5000;
     this._bossMode = config.bossMode || false;
     this._challengeMods = config.challengeModifiers || {};
@@ -86,6 +97,9 @@ class TargetSystem {
     // TASK-290: Multiplier zones
     this._multiplierZones = new Set();
     this._lastZoneSpawnTime = 0;
+
+    // TASK-394: Pre-allocate vector for GC-free tick()
+    this._camPos = new THREE.Vector3();
 
     // Laser sweeps (TASK-258)
     this._laserSweeps = new Set();
@@ -515,6 +529,7 @@ class TargetSystem {
     }
 
     this._targets.delete(el);
+    _targetCache.delete(el);  // TASK-389: Remove from global cache
     if (el._expireTimeout) clearTimeout(el._expireTimeout);
     // Stop spatial hum
     const hum = this._targetHums.get(el);
@@ -561,12 +576,12 @@ class TargetSystem {
     if (powerUpManager.hasMagnet()) {
       const cam = document.getElementById('camera');
       if (cam) {
-        const camPos = new THREE.Vector3();
-        cam.object3D.getWorldPosition(camPos);
+        // TASK-394: GC-free - reuse pre-allocated vector
+        cam.object3D.getWorldPosition(this._camPos);
         for (const el of this._targets) {
           if (!el.object3D || el._targetType === 'decoy') continue;
           const tPos = el.object3D.position;
-          const dist = camPos.distanceTo(tPos);
+          const dist = this._camPos.distanceTo(tPos);
           if (dist < 3) {
             el.dispatchEvent(new CustomEvent('destroyed', { detail: { damage: 1, position: { x: tPos.x, y: tPos.y, z: tPos.z } } }));
             this._removeTarget(el);
@@ -596,12 +611,7 @@ class TargetSystem {
 
   _removeTarget(el, expired = false) {
     this._targets.delete(el);
-
-    // V36 TASK-465: Remove from target cache for GC-free target-indicator.js
-    if (window.__targetCache) {
-      window.__targetCache.delete(el);
-    }
-
+    _targetCache.delete(el);  // TASK-389: Remove from global cache
     if (el._expireTimeout) clearTimeout(el._expireTimeout);
     if (el._teleportInterval) clearInterval(el._teleportInterval);
     if (el._bombTickTimer) clearInterval(el._bombTickTimer);
@@ -688,10 +698,14 @@ class TargetSystem {
       if (el.parentNode) el.parentNode.removeChild(el);
     });
     this._targets.clear();
+    _targetCache.clear();  // TASK-389: Clear global cache
     this._targetHums.forEach(h => h.stop());
     this._targetHums.clear();
   }
 }
+
+// TASK-389: Expose cache globally for non-module files (A-Frame components)
+window.getTargetCache = getTargetCache;
 
 export { TargetSystem };
 export default TargetSystem;

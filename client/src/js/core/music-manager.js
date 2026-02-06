@@ -1,5 +1,9 @@
 import audioManager from './audio-manager.js';
 
+// TASK-424: Quest detection for performance - disable adaptive music on Quest
+const _isQuest = typeof window !== 'undefined' &&
+  (window.__isQuestDevice || /Quest|Android|Mobile/i.test(navigator.userAgent));
+
 const MUSIC_PROFILES = {
   cyber: {
     bassFreq: 40, bassType: 'sine',
@@ -143,6 +147,11 @@ class MusicManager {
   }
 
   startMusic(themeId) {
+    // TASK-424: Skip music on Quest for performance (8 oscillators too expensive)
+    if (_isQuest) {
+      console.log('[music-manager] Disabled on Quest for performance');
+      return;
+    }
     if (!this._enabled) return;
     this.stopMusic();
 

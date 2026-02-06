@@ -5,8 +5,9 @@
  * Usage: <a-entity shoot-controls="hand: right">
  */
 
-// V40 TASK-484: Cache Quest check to avoid repeated lookups
-const _isQuest = typeof VRCore !== 'undefined' && VRCore.isQuest && VRCore.isQuest();
+// TASK-430: Quest detection for disabling visual effects
+const _isQuestSC = typeof window !== 'undefined' &&
+  (window.__isQuestSCDevice || /Quest|Android|Mobile/i.test(navigator.userAgent));
 
 AFRAME.registerComponent('shoot-controls', {
   schema: {
@@ -22,31 +23,23 @@ AFRAME.registerComponent('shoot-controls', {
     this._swayTime = Math.random() * 1000;
     this._swayOffsetY = 0;
     this._swayOffsetX = 0;
+    // TASK-462: Frame counter for Quest throttling
+    this._frameCount = 0;
 
-    // V36 TASK-466: Pre-allocated vectors for GC-free shotgun hit detection
-    this._shotgunOrigin = new THREE.Vector3();
-    this._shotgunDirection = new THREE.Vector3();
-    this._shotgunTargetPos = new THREE.Vector3();
-    this._shotgunToTarget = new THREE.Vector3();
-
-    // V40 TASK-483: Pre-allocated vectors for GC-free per-shot operations
-    this._missOrigin = new THREE.Vector3();
-    this._missDirection = new THREE.Vector3();
-    this._missFarPoint = new THREE.Vector3();
-    this._scratchVec = new THREE.Vector3(); // Scratch vector for multiplyScalar ops
-    this._trailOrigin = new THREE.Vector3();
-    this._trailDirection = new THREE.Vector3();
-    this._trailEnd = new THREE.Vector3();
-    this._trailMid = new THREE.Vector3();
-    this._trailUp = new THREE.Vector3(0, 1, 0);
-    this._trailQuat = new THREE.Quaternion();
-    this._trailEuler = new THREE.Euler();
+    // TASK-396: Pre-allocate vectors for GC-free event handlers
+    this._origin = new THREE.Vector3();
+    this._direction = new THREE.Vector3();
+    this._end = new THREE.Vector3();
+    this._mid = new THREE.Vector3();
+    this._targetPos = new THREE.Vector3();
+    this._toTarget = new THREE.Vector3();
+    this._shellPos = new THREE.Vector3();
+    this._sparkPos = new THREE.Vector3();
     this._muzzlePos = new THREE.Vector3();
     this._muzzleDir = new THREE.Vector3();
-    this._shellPos = new THREE.Vector3();
-    this._shellSparkPos = new THREE.Vector3();
-    this._muzzleColor = new THREE.Color();
-    this._smokeDir = new THREE.Vector3(); // For smoke puff setTimeout closure
+    this._upVec = new THREE.Vector3(0, 1, 0);
+    this._quat = new THREE.Quaternion();
+    this._euler = new THREE.Euler();
   },
 
   remove() {
@@ -64,6 +57,9 @@ AFRAME.registerComponent('shoot-controls', {
 
   tick(time, delta) {
     if (!delta) return;
+
+    // TASK-462: Throttle tick() to every 3rd frame on Quest (idle sway doesn't need 90Hz)
+    if (_isQuestSC && this._frameCount++ % 3 !== 0) return;
 
     // TASK-342: Fade muzzle light
     if (this._muzzleLight && this._muzzleLightFade > 0) {
@@ -135,13 +131,12 @@ AFRAME.registerComponent('shoot-controls', {
           this._spawnRicochet(hit.point);
         }
       } else {
-        // V40 TASK-483: Total miss — ricochet at far end of ray (GC-free)
-        this.el.object3D.getWorldPosition(this._missOrigin);
-        this.el.object3D.getWorldDirection(this._missDirection);
-        this._missDirection.negate();
-        this._scratchVec.copy(this._missDirection).multiplyScalar(25);
-        this._missFarPoint.copy(this._missOrigin).add(this._scratchVec);
-        this._spawnRicochet(this._missFarPoint);
+        // Total miss — ricochet at far end of ray (TASK-396: GC-free)
+        this.el.object3D.getWorldPosition(this._origin);
+        this.el.object3D.getWorldDirection(this._direction);
+        this._direction.negate();
+        this._end.copy(this._direction).multiplyScalar(25).add(this._origin);
+        this._spawnRicochet(this._end);
       }
       this._flashLaser(weapon);
     }
@@ -163,9 +158,11 @@ AFRAME.registerComponent('shoot-controls', {
     // Weapon recoil kick (snap back quickly)
     this._applyRecoil(weapon);
 
-    // Shell casing eject (pistol, shotgun, smg — not sniper/railgun)
+    // V52: Enable shell casing for pistol on Quest, all non-energy weapons on desktop
     if (!weapon || (weapon.id !== 'sniper' && weapon.id !== 'railgun')) {
-      this._spawnShellCasing(weapon);
+      if (!_isQuestSC || !weapon || weapon.id === 'pistol') {
+        this._spawnShellCasing(weapon);
+      }
     }
   },
 
@@ -196,13 +193,10 @@ AFRAME.registerComponent('shoot-controls', {
   },
 
   _spawnShellCasing(weapon) {
-    // V40 TASK-484: Skip visual-only effects on Quest
-    if (_isQuest) return;
-
     const scene = this.el.sceneEl;
     if (!scene) return;
 
-    // V40 TASK-483: Use pre-allocated vector
+    // TASK-396: GC-free - reuse pre-allocated vector
     this.el.object3D.getWorldPosition(this._shellPos);
     const pos = this._shellPos;
 
@@ -230,11 +224,11 @@ AFRAME.registerComponent('shoot-controls', {
 
     scene.appendChild(shell);
     // TASK-365: Spark on shell casing floor hit
+    const self = this;
     setTimeout(() => {
       if (shell.parentNode) {
-        // V40 TASK-483: Use pre-allocated vector
-        shell.object3D.getWorldPosition(this._shellSparkPos);
-        const sp = this._shellSparkPos;
+        shell.object3D.getWorldPosition(self._sparkPos);
+        const sp = self._sparkPos;
         // Tiny spark burst at landing position
         const spark = document.createElement('a-sphere');
         spark.setAttribute('radius', '0.005');
@@ -249,31 +243,26 @@ AFRAME.registerComponent('shoot-controls', {
   },
 
   _shotgunHit(raycaster, weapon) {
-    // V36 TASK-466: Use cached targets and pre-allocated vectors for zero GC
-    const targetCache = window.__targetCache;
-    if (!targetCache) {
-      // Fallback if cache not ready
-      return;
-    }
+    // TASK-395: Use cached targets instead of querySelectorAll
+    const targets = window.getTargetCache ? window.getTargetCache() : document.querySelectorAll('.target');
+    // TASK-396: GC-free - reuse pre-allocated vectors
+    this.el.object3D.getWorldPosition(this._origin);
+    this.el.object3D.getWorldDirection(this._direction);
+    this._direction.negate();
 
-    this.el.object3D.getWorldPosition(this._shotgunOrigin);
-    this.el.object3D.getWorldDirection(this._shotgunDirection);
-    this._shotgunDirection.negate();
-
-    targetCache.forEach(targetEl => {
-      targetEl.object3D.getWorldPosition(this._shotgunTargetPos);
-
-      // Reuse _shotgunToTarget vector
-      this._shotgunToTarget.copy(this._shotgunTargetPos).sub(this._shotgunOrigin);
-      const dist = this._shotgunToTarget.length();
+    const self = this;
+    targets.forEach(targetEl => {
+      targetEl.object3D.getWorldPosition(self._targetPos);
+      self._toTarget.copy(self._targetPos).sub(self._origin);
+      const dist = self._toTarget.length();
       if (dist > 50) return;
 
-      this._shotgunToTarget.normalize();
-      const angle = this._shotgunToTarget.angleTo(this._shotgunDirection);
+      self._toTarget.normalize();
+      const angle = self._toTarget.angleTo(self._direction);
 
       if (angle < weapon.spread) {
         targetEl.dispatchEvent(new CustomEvent('hit', {
-          detail: { point: this._shotgunTargetPos, damage: weapon.damage },
+          detail: { point: self._targetPos.clone(), damage: weapon.damage },
         }));
       }
     });
@@ -290,21 +279,21 @@ AFRAME.registerComponent('shoot-controls', {
       this.el.setAttribute('raycaster', 'lineColor', color);
     }, 80);
 
+    // TASK-430: Skip visual effects on Quest for performance
+    if (_isQuestSC) return;
+
     this._spawnLaserTrail(weapon);
     this._spawnMuzzleFlash(weapon);
   },
 
   _spawnLaserTrail(weapon) {
-    // V40 TASK-484: Skip visual-only effects on Quest
-    if (_isQuest) return;
-
     const scene = this.el.sceneEl;
     if (!scene) return;
 
-    // V40 TASK-483: Use pre-allocated vectors
-    this.el.object3D.getWorldPosition(this._trailOrigin);
-    this.el.object3D.getWorldDirection(this._trailDirection);
-    this._trailDirection.negate();
+    // TASK-396: GC-free - reuse pre-allocated vectors
+    this.el.object3D.getWorldPosition(this._origin);
+    this.el.object3D.getWorldDirection(this._direction);
+    this._direction.negate();
 
     // Determine trail endpoint: hit point or max distance
     const raycaster = this.el.components.raycaster;
@@ -313,31 +302,25 @@ AFRAME.registerComponent('shoot-controls', {
       dist = raycaster.intersections[0].distance;
     }
 
-    // V40 TASK-483: Reuse pre-allocated vectors instead of clone()
-    this._scratchVec.copy(this._trailDirection).multiplyScalar(dist);
-    this._trailEnd.copy(this._trailOrigin).add(this._scratchVec);
-    this._trailMid.copy(this._trailOrigin).add(this._trailEnd).multiplyScalar(0.5);
-
-    const origin = this._trailOrigin;
-    const direction = this._trailDirection;
-    const end = this._trailEnd;
-    const mid = this._trailMid;
+    // Calculate end and mid points (GC-free)
+    this._end.copy(this._direction).multiplyScalar(dist).add(this._origin);
+    this._mid.copy(this._origin).add(this._end).multiplyScalar(0.5);
 
     const color = weapon?.laserColor || '#ff4444';
     const wId = weapon?.id;
     const trailRadius = wId === 'shotgun' ? 0.018 : wId === 'sniper' ? 0.005 : wId === 'railgun' ? 0.025 : wId === 'smg' ? 0.007 : 0.01;
     const trail = document.createElement('a-cylinder');
-    trail.setAttribute('position', `${mid.x} ${mid.y} ${mid.z}`);
+    trail.setAttribute('position', `${this._mid.x} ${this._mid.y} ${this._mid.z}`);
     trail.setAttribute('radius', String(trailRadius));
     trail.setAttribute('height', String(dist));
     trail.setAttribute('material', `shader: flat; color: ${color}; emissive: ${color}; emissiveIntensity: 1; opacity: 0.8; transparent: true`);
     trail.setAttribute('shadow', 'cast: false; receive: false');
 
-    // V40 TASK-483: Orient cylinder using pre-allocated quaternion/euler
-    this._trailQuat.setFromUnitVectors(this._trailUp, direction);
-    this._trailEuler.setFromQuaternion(this._trailQuat);
+    // Orient cylinder along direction (GC-free)
+    this._quat.setFromUnitVectors(this._upVec, this._direction);
+    this._euler.setFromQuaternion(this._quat);
     const deg = (r) => (r * 180) / Math.PI;
-    trail.setAttribute('rotation', `${deg(this._trailEuler.x)} ${deg(this._trailEuler.y)} ${deg(this._trailEuler.z)}`);
+    trail.setAttribute('rotation', `${deg(this._euler.x)} ${deg(this._euler.y)} ${deg(this._euler.z)}`);
 
     scene.appendChild(trail);
 
@@ -369,48 +352,42 @@ AFRAME.registerComponent('shoot-controls', {
     if (now - this._lastFlashTime < 80) return;
     this._lastFlashTime = now;
 
-    // V40 TASK-483: Use pre-allocated vectors
+    // TASK-396: GC-free - reuse pre-allocated vectors
     this.el.object3D.getWorldPosition(this._muzzlePos);
-    const pos = this._muzzlePos;
     const color = weapon?.laserColor || '#ffffff';
 
     // TASK-342: Enhanced GPU particle burst (more particles, cone spread)
     if (window.__spawnGPUBurst) {
       this.el.object3D.getWorldDirection(this._muzzleDir);
       this._muzzleDir.negate(); // forward direction
-      window.__spawnGPUBurst(scene, pos, {
+      window.__spawnGPUBurst(scene, this._muzzlePos, {
         count: 10, color, size: 0.03, speed: 4, lifetime: 80,
         spread: 0.3, direction: this._muzzleDir,
       });
-      // TASK-365: Smoke puff after shot (delayed slightly, desktop only)
-      if (!_isQuest) {
-        this._smokeDir.copy(this._muzzleDir); // GC-free copy for setTimeout closure
-        const smokeDir = this._smokeDir;
-        setTimeout(() => {
-          window.__spawnGPUBurst(scene, pos, {
-            preset: 'smoke', count: 6, color: '#888888', color2: '#555555',
-            size: 0.04, speed: 0.5, lifetime: 300, opacity: 0.25,
-            spread: 0.2, direction: smokeDir,
-          });
-        }, 40);
-      }
+      // TASK-365: Smoke puff after shot (delayed slightly)
+      const self = this;
+      setTimeout(() => {
+        window.__spawnGPUBurst(scene, self._muzzlePos, {
+          preset: 'smoke', count: 6, color: '#888888', color2: '#555555',
+          size: 0.04, speed: 0.5, lifetime: 300, opacity: 0.25,
+          spread: 0.2, direction: self._muzzleDir,
+        });
+      }, 40);
     }
 
-    // V40 TASK-484: Visual flash sphere — skip on Quest, keep GPU particles
-    if (!_isQuest) {
-      const flashSize = weapon?.id === 'shotgun' ? 0.1 : weapon?.id === 'sniper' ? 0.06 : 0.07;
-      const flash = document.createElement('a-sphere');
-      flash.setAttribute('position', `${pos.x} ${pos.y} ${pos.z}`);
-      flash.setAttribute('radius', String(flashSize));
-      flash.setAttribute('material', `shader: flat; color: ${color}; emissive: ${color}; emissiveIntensity: 2; opacity: 0.9; transparent: true`);
-      flash.setAttribute('shadow', 'cast: false; receive: false');
-      scene.appendChild(flash);
-      flash.setAttribute('animation__shrink', {
-        property: 'scale', from: '1.2 1.2 1.2', to: '0 0 0',
-        dur: 80, easing: 'easeOutQuad',
-      });
-      setTimeout(() => { if (flash.parentNode) flash.parentNode.removeChild(flash); }, 100);
-    }
+    // Visual flash sphere (entity-based, lightweight)
+    const flashSize = weapon?.id === 'shotgun' ? 0.1 : weapon?.id === 'sniper' ? 0.06 : 0.07;
+    const flash = document.createElement('a-sphere');
+    flash.setAttribute('position', `${pos.x} ${pos.y} ${pos.z}`);
+    flash.setAttribute('radius', String(flashSize));
+    flash.setAttribute('material', `shader: flat; color: ${color}; emissive: ${color}; emissiveIntensity: 2; opacity: 0.9; transparent: true`);
+    flash.setAttribute('shadow', 'cast: false; receive: false');
+    scene.appendChild(flash);
+    flash.setAttribute('animation__shrink', {
+      property: 'scale', from: '1.2 1.2 1.2', to: '0 0 0',
+      dur: 80, easing: 'easeOutQuad',
+    });
+    setTimeout(() => { if (flash.parentNode) flash.parentNode.removeChild(flash); }, 100);
 
     // TASK-342: Reusable Three.js PointLight (no create/destroy per shot)
     if (!this._muzzleLight) {
@@ -418,9 +395,8 @@ AFRAME.registerComponent('shoot-controls', {
       this._muzzleLight.castShadow = false;
       scene.object3D.add(this._muzzleLight);
     }
-    // V40 TASK-483: Use pre-allocated color
-    this._muzzleColor.set(color);
-    this._muzzleLight.color.copy(this._muzzleColor);
+    const c = new THREE.Color(color);
+    this._muzzleLight.color.copy(c);
     this._muzzleLight.intensity = 2.0;
     this._muzzleLight.position.set(pos.x, pos.y, pos.z);
     this._muzzleLightFade = 50; // ms remaining
@@ -430,60 +406,69 @@ AFRAME.registerComponent('shoot-controls', {
     const scene = this.el.sceneEl;
     if (!scene || !point) return;
 
-    const px = point.x, py = point.y, pz = point.z;
-
-    // V40 TASK-484: Skip visual effects on Quest, keep audio/haptic
-    if (!_isQuest) {
-      // Spark particles (4 small spheres)
-      for (let i = 0; i < 4; i++) {
-        const s = document.createElement('a-sphere');
-        s.setAttribute('radius', '0.008');
-        s.setAttribute('material', 'shader: flat; color: #ffcc44; opacity: 0.8');
-        s.setAttribute('position', `${px} ${py} ${pz}`);
-        const dx = (Math.random() - 0.5) * 1.2;
-        const dy = Math.random() * 0.8 + 0.2;
-        const dz = (Math.random() - 0.5) * 1.2;
-        s.setAttribute('animation__burst', {
-          property: 'position',
-          to: `${px + dx} ${py + dy} ${pz + dz}`,
-          dur: 200, easing: 'easeOutQuad',
-        });
-        s.setAttribute('animation__fade', {
-          property: 'material.opacity', from: 0.8, to: 0,
-          dur: 250, easing: 'easeOutQuad',
-        });
-        scene.appendChild(s);
-        setTimeout(() => { if (s.parentNode) s.parentNode.removeChild(s); }, 300);
+    // TASK-430: Skip all ricochet visuals on Quest for performance
+    if (_isQuestSC) {
+      // Keep only audio feedback
+      if (window.__audioManager) {
+        window.__audioManager.playRicochet({ x: point.x, y: point.y, z: point.z });
       }
-
-      // Flash light at impact
-      const fl = document.createElement('a-entity');
-      fl.setAttribute('position', `${px} ${py} ${pz}`);
-      fl.setAttribute('light', 'type: point; color: #ffcc44; intensity: 1; distance: 3; decay: 2');
-      fl.setAttribute('animation__dim', {
-        property: 'light.intensity', from: 1, to: 0, dur: 100, easing: 'easeOutQuad',
-      });
-      scene.appendChild(fl);
-      setTimeout(() => { if (fl.parentNode) fl.parentNode.removeChild(fl); }, 120);
-
-      // TASK-261: Destructible environment — burn mark + energy cracks
-      this._spawnImpactMark(point);
+      return;
     }
 
-    // Spatial ricochet sound (always play, even on Quest)
+    const px = point.x, py = point.y, pz = point.z;
+
+    // Spark particles (4 small spheres)
+    for (let i = 0; i < 4; i++) {
+      const s = document.createElement('a-sphere');
+      s.setAttribute('radius', '0.008');
+      s.setAttribute('material', 'shader: flat; color: #ffcc44; opacity: 0.8');
+      s.setAttribute('position', `${px} ${py} ${pz}`);
+      const dx = (Math.random() - 0.5) * 1.2;
+      const dy = Math.random() * 0.8 + 0.2;
+      const dz = (Math.random() - 0.5) * 1.2;
+      s.setAttribute('animation__burst', {
+        property: 'position',
+        to: `${px + dx} ${py + dy} ${pz + dz}`,
+        dur: 200, easing: 'easeOutQuad',
+      });
+      s.setAttribute('animation__fade', {
+        property: 'material.opacity', from: 0.8, to: 0,
+        dur: 250, easing: 'easeOutQuad',
+      });
+      scene.appendChild(s);
+      setTimeout(() => { if (s.parentNode) s.parentNode.removeChild(s); }, 300);
+    }
+
+    // Flash light at impact
+    const fl = document.createElement('a-entity');
+    fl.setAttribute('position', `${px} ${py} ${pz}`);
+    fl.setAttribute('light', 'type: point; color: #ffcc44; intensity: 1; distance: 3; decay: 2');
+    fl.setAttribute('animation__dim', {
+      property: 'light.intensity', from: 1, to: 0, dur: 100, easing: 'easeOutQuad',
+    });
+    scene.appendChild(fl);
+    setTimeout(() => { if (fl.parentNode) fl.parentNode.removeChild(fl); }, 120);
+
+    // Spatial ricochet sound
     if (window.__audioManager) {
       window.__audioManager.playRicochet({ x: px, y: py, z: pz });
     }
 
-    // Light haptic on miss (always trigger, even on Quest)
+    // Light haptic on miss
     const hm = window.__hapticManager;
     if (hm) hm.pulse(0.1, 20);
+
+    // TASK-261: Destructible environment — burn mark + energy cracks
+    this._spawnImpactMark(point);
   },
 
   // TASK-261: Impact marks pool (max 20, FIFO)
   _impactMarks: [],
 
   _spawnImpactMark(point) {
+    // TASK-430: Skip impact marks on Quest for performance
+    if (_isQuestSC) return;
+
     const scene = this.el.sceneEl;
     if (!scene || !point) return;
     const px = point.x, py = point.y, pz = point.z;
