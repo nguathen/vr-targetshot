@@ -99,6 +99,10 @@ export function startGame({ mode, weapon, theme, onReturnToMenu }) {
     _initialized = true;
   }
   _initRound(theme);
+
+  // Dismiss VR loading screen now that game is ready (VRC.Quest.Performance.3)
+  var sceneEl = document.querySelector('a-scene');
+  if (sceneEl) sceneEl.emit('vr-loading-screen:dismiss');
 }
 
 // DOM refs (set once)

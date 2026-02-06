@@ -11,8 +11,8 @@
 | Status | Count |
 |--------|-------|
 | In Progress | 0 |
-| Pending | 0 |
-| Completed | 220 |
+| Pending | 1 |
+| Completed | 222 |
 
 > V1–V13 — all completed (68 tasks).
 > **V14 Content & QoL Upgrade (TASK-270~277)** — completed.
@@ -40,6 +40,163 @@
 > **V36 Environment & tick() Optimization (TASK-456~460)** — completed.
 > **V37 Deep tick() & Draw Call Optimization (TASK-461~462)** — completed.
 > **V42 Final Quest Polish (TASK-470~472)** — completed.
+> **V43 VR Loading Indicator (TASK-480~482)** — pending.
+
+---
+
+## V43 — VR Loading Indicator (Meta VRC.Quest.Performance.3 Fix)
+
+> **Goal:** Pass Meta Quest Store review by showing head-tracked loading indicator within 4 seconds of launch.
+> **Issue:** ISSUE-021 — App rejected because no VR loading content visible during startup.
+> **Strategy:** Create an A-Frame `vr-loading-screen` component that renders a head-tracked 3D loading scene immediately when the A-Frame scene initializes, before any game assets load.
+
+### Design
+
+**Architecture Decision: In-Scene A-Frame Loading Indicator**
+
+The loading indicator must be **head-tracked** (rendered in WebXR stereo view, moves with head rotation). A 2D HTML overlay does NOT satisfy the requirement.
+
+**Approach:**
+- Register `vr-loading-screen` A-Frame component on the `<a-scene>` element
+- In `init()`: create a minimal 3D loading scene (camera-space HUD with spinner + text)
+- The loading entities are children of the camera, so they're always in front of the user
+- Animated via `tick()` (simple rotation, no allocations)
+- Listens for a custom event `game:ready` → fade out and remove
+- Must work on both `index.html` (menu) and `game.html` (direct game launch)
+
+**Visual Design (minimal draw calls):**
+```
+[Camera space, z=-2]
+  - "VR QUEST" text (a-text, flat)
+  - Spinning ring (a-torus, flat shader, rotation animation)
+  - "Loading..." text (a-text, flat)
+```
+
+**Performance:** 3 entities, all `shader: flat`, 1 rotation in tick() (pre-allocated). ~0 draw call overhead.
+
+---
+
+### TASK-480: Create `vr-loading-screen` A-Frame component ✅
+**Priority:** Critical
+**Status:** Completed (2026-02-06)
+**Assigned:** /dev
+
+#### Description
+Create a new A-Frame component `vr-loading-screen` that displays a head-tracked 3D loading indicator in VR. This component attaches loading entities to the camera so they're always visible regardless of head orientation.
+
+#### Scope
+- **New file:** `client/src/js/components/vr-loading-screen.js`
+
+#### Implementation Details
+1. Register `AFRAME.registerComponent('vr-loading-screen', {...})`
+2. In `init()`:
+   - Create a container `a-entity` and parent it to the scene's camera (`[camera]` or `#camera`)
+   - Add child entities (all using `shader: flat`):
+     - `a-text` — "VR QUEST" title, position `0 0.3 -2`, color `#00ff88`
+     - `a-torus` — Loading spinner, position `0 0 -2`, radius `0.15`, tube `0.01`, flat shader, color `#00ff88`
+     - `a-text` — "Loading..." subtitle, position `0 -0.3 -2`, color `#aaaaaa`
+   - Set `this._spinner` reference for tick rotation
+   - Pre-allocate rotation: `this._rotation = {x: 0, y: 0, z: 0}`
+3. In `tick(time, delta)`:
+   - Rotate spinner: `this._rotation.z += delta * 0.18` (slow spin)
+   - Apply via `this._spinner.object3D.rotation.z = this._rotation.z` (no allocation)
+4. Listen for `'vr-loading-screen:dismiss'` event on `this.el`:
+   - Fade out container (animate opacity or just remove)
+   - Remove all loading entities
+   - Remove component from element
+5. In `remove()`:
+   - Clean up all created entities
+   - Remove event listeners
+
+#### GC-Free Compliance
+- Pre-allocate rotation value in `init()`
+- No `new THREE.*` in `tick()`
+- No DOM queries in `tick()`
+
+#### Acceptance Criteria
+- [x] Component creates head-tracked 3D loading scene
+- [x] Loading spinner animates smoothly
+- [x] All entities use `shader: flat`
+- [x] Properly cleans up on dismiss/remove
+- [x] No GC allocations in tick()
+
+---
+
+### TASK-481: Integrate `vr-loading-screen` into index.html and game.html ✅
+**Priority:** Critical
+**Status:** Completed (2026-02-06)
+**Assigned:** /dev
+
+#### Description
+Add the `vr-loading-screen` component to both HTML entry points so the VR loading indicator appears immediately when the A-Frame scene initializes.
+
+#### Scope
+- `client/src/index.html` — Add script tag + component attribute
+- `client/src/game.html` — Add script tag + component attribute
+
+#### Implementation Details
+
+**Both files:**
+1. Add `<script src="./js/components/vr-loading-screen.js"></script>` BEFORE the `<a-scene>` tag (but AFTER `aframe.min.js`)
+2. Add `vr-loading-screen` attribute to `<a-scene>`:
+   - `index.html`: `<a-scene id="scene" vr-loading-screen ...>`
+   - `game.html`: `<a-scene id="game-scene" vr-loading-screen ...>`
+
+**Dismiss trigger:**
+3. In `client/src/js/main.js` — After menu is ready, emit dismiss:
+   ```javascript
+   document.querySelector('a-scene').emit('vr-loading-screen:dismiss');
+   ```
+4. In `client/src/js/game-main.js` — After game scene is ready (scene 'loaded' event + initial setup), emit dismiss:
+   ```javascript
+   document.querySelector('a-scene').emit('vr-loading-screen:dismiss');
+   ```
+
+**Key: The dismiss must fire AFTER the scene has enough content to render.** If dismissed too early, user sees empty black screen again.
+
+#### Acceptance Criteria
+- [x] Loading indicator visible on both index.html and game.html
+- [x] Appears immediately when A-Frame scene initializes
+- [x] Dismissed when page-specific content is ready
+- [x] Does NOT interfere with existing loading-screen (HTML overlay for flat mode)
+- [x] Script loaded before `<a-scene>` so component is registered in time
+
+#### Integration Impact
+- `client/src/js/main.js` — Add dismiss emit
+- `client/src/js/game-main.js` — Add dismiss emit
+
+---
+
+### TASK-482: Verify VR loading indicator timing meets 4-second requirement
+**Priority:** Critical
+**Status:** Pending (requires device testing)
+**Assigned:** /dev
+
+#### Description
+Test and verify that the VR loading indicator appears within 4 seconds of app launch on Quest. Adjust if needed.
+
+#### Scope
+- Test on Quest 2/3 device via `quest-deploy.ps1`
+- Measure time from APK launch to first head-tracked frame
+
+#### Test Plan
+1. Build and deploy to Quest: `.\quest-deploy.ps1`
+2. Force-close app, then launch from Quest home
+3. Start timer when app icon is tapped
+4. Confirm: head-tracked loading spinner visible within 4 seconds
+5. Confirm: loading spinner dismisses and game content appears
+6. Repeat 3 times to verify consistency
+
+#### Fallback if 4s not met
+If A-Frame CDN load takes too long (>3s):
+- **Option A:** Bundle A-Frame locally instead of CDN (eliminates network latency)
+- **Option B:** Add an OS-level splash with `com.oculus.ossplash` meta-data in AndroidManifest.xml (already partially configured: `com.oculus.ossplash.background: passthrough-contextual`)
+
+#### Acceptance Criteria
+- [ ] Head-tracked content visible within 4 seconds on Quest 2
+- [ ] Head-tracked content visible within 4 seconds on Quest 3
+- [ ] Consistent across 3+ test launches
+- [ ] Pass Meta VRC.Quest.Performance.3 on re-submission
 
 ---
 

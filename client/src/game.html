@@ -131,6 +131,7 @@
   <script src="./js/components/weapon-model.js"></script>
   <script src="./js/components/hand-shield.js"></script>
   <script src="./js/components/env-reflections.js"></script>
+  <script src="./js/components/vr-loading-screen.js"></script>
 
   <!-- V32/V34 Quest performance: handled by V34 script above, plus DOM cleanup -->
   <script>
@@ -257,7 +258,7 @@
   </script>
 
   <!-- TASK-445: Desktop also gets optimized renderer (no antialias saves GPU) -->
-  <a-scene id="game-scene" vr-mode-ui="enterVRButton: #enter-vr-custom"
+  <a-scene id="game-scene" vr-loading-screen vr-mode-ui="enterVRButton: #enter-vr-custom"
            renderer="antialias: false; colorManagement: true"
            bloom-effect="strength: 0.3; radius: 0.4; threshold: 0.7"
            env-reflections>

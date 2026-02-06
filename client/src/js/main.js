@@ -855,6 +855,9 @@ authManager.waitReady().then(() => {
         if (ok && !scene.is('vr-mode')) scene.enterVR();
       }).catch(() => {});
     }
+
+    // Dismiss VR loading screen now that menu is ready (VRC.Quest.Performance.3)
+    scene.emit('vr-loading-screen:dismiss');
   };
   if (scene.hasLoaded) init();
   else scene.addEventListener('loaded', init);

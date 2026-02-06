@@ -876,3 +876,26 @@ What was decided?
 1. Option A - rejected because...
 2. Option B - rejected because...
 ```
+
+---
+
+### ADR-001: VR Loading Indicator for Meta Store Compliance
+
+**Status:** Accepted
+**Date:** 2026-02-06
+
+**Context:**
+Meta Quest Store rejected the app (VRC.Quest.Performance.3): must display head-tracked graphics within 4 seconds of launch OR show a VR loading indicator. Current HTML loading screen is a 2D overlay not visible in VR headset.
+
+**Decision:**
+Create an A-Frame `vr-loading-screen` component that renders a minimal head-tracked 3D loading scene (spinner + text) attached to the camera entity. Shows immediately when scene initializes, dismissed via event when game content is ready.
+
+**Consequences:**
+- Positive: Satisfies VRC.Quest.Performance.3, minimal performance impact (3 flat-shader entities), works on both entry points
+- Negative: Adds ~50 lines of code, slight visual overlap with existing HTML loading screen (both show briefly)
+- Risks: If A-Frame CDN takes >3.5s to load, the component won't register in time. Fallback: bundle A-Frame locally.
+
+**Alternatives Considered:**
+1. Speed up app to render in <4s — rejected because CDN load + WebXR init is structurally ~3-5s, too risky
+2. Native Android splash with head tracking — rejected because TWA apps use Quest Browser, no native VR rendering control
+3. OS-level splash (`com.oculus.ossplash`) — partially implemented but Meta considers this insufficient alone for the 4s requirement

@@ -17,43 +17,49 @@
 
 ## Open Issues
 
-### ISSUE-020: [Critical] Meta Quest VRC Rejection — FPS drops below 60 at game start
+### ISSUE-021: [Critical] Meta Quest VRC Rejection — No VR Loading Indicator (VRC.Quest.Performance.3)
 
 **Severity:** Critical
 **Status:** Open
-**Found By:** Meta Quest Store Review (VRC.Quest.Performance.1)
-**Date:** 2026-02-04
+**Found By:** Meta Quest Store Review (VRC.Quest.Performance.3)
+**Date:** 2026-02-06
 **Assigned:** /dev
 
 ### Description
-App rejected by Meta Quest Store. FPS fluctuates below 60 during shooting game initialization, violating VRC.Quest.Performance.1 requirement (stable 72Hz+).
+App rejected by Meta Quest Store. Fails to display head-tracked graphics within 4 seconds of launch AND lacks a VR loading indicator. User sees black/frozen screen in headset during app startup.
+
+> "Your app fails to display head-tracked graphics within 4 seconds of launch and lacks a loading indicator in VR, resulting in an unresponsive or frozen appearance."
 
 ### Root Cause Analysis
-6 synchronous heavy operations during `_initRound()`:
-
-| Component | File | Issue | Impact |
-|-----------|------|-------|--------|
-| Bloom Effect | bloom-effect.js:71-154 | 4 RenderTargets + 4 shaders | ~80ms GPU stall |
-| Env Reflections | env-reflections.js:162 | PMREMGenerator cubemap | ~100ms |
-| Normal Maps | env-reflections.js:210-461 | 512×512 canvas generation | ~50ms |
-| Theme Apply | environment-themes.js:382-622 | 20+ DOM ops + decorations | ~60ms |
-| Ambient Particles | game-main.js:986-1079 | 70 legacy entities | ~40ms |
-| Target Models | target-models.js:37-56 | 30 geometries on first spawn | ~50ms |
-
-**Total estimated stall: ~380ms** (6+ frames at 60fps)
+1. **TWA splash screen is 2D** — not visible as head-tracked content in VR headset
+2. **HTML loading screen (`#loading-screen`) is a 2D DOM overlay** — not rendered in WebXR stereo view
+3. **A-Frame CDN load is blocking** — ~500-1000ms before any 3D rendering possible
+4. **No A-Frame loading indicator in VR** — from VR session start to scene ready, nothing head-tracked is shown
+5. **Total startup: 4-6 seconds** before first head-tracked frame
 
 ### Fix Strategy
-**V28 Performance Optimization** — Defer all heavy initialization:
-1. Lazy shader compilation (compile on first use, not scene load)
-2. Async cubemap/normal map generation (spread across frames)
-3. Pre-warm target models during loading screen
-4. Force GPU particles only (remove legacy fallback)
-5. Object pooling for decorations
+**V43 — VR Loading Indicator** (TASK-480~482):
+1. Create minimal A-Frame VR loading scene component (head-tracked spinner + text)
+2. Show immediately when scene initializes (before game assets load)
+3. Dismiss when game is fully ready
+4. Ensure it appears within 4 seconds of app launch
 
 ### Acceptance Criteria
-- [ ] Stable 72+ FPS during game start on Quest 2
-- [ ] No single-frame stalls > 16ms
-- [ ] Pass OVR Metrics Tool profiling
+- [ ] Head-tracked loading indicator visible within 4 seconds of launch
+- [ ] Loading indicator shows progress/activity (spinner or animation)
+- [ ] Loading indicator dismisses when game is ready
+- [ ] Pass VRC.Quest.Performance.3
+
+---
+
+### ISSUE-020: [Critical] Meta Quest VRC Rejection — FPS drops below 60 at game start
+
+**Severity:** Critical
+**Status:** Resolved (2026-02-05)
+**Found By:** Meta Quest Store Review (VRC.Quest.Performance.1)
+**Date:** 2026-02-04
+**Assigned:** /dev
+**Resolution:** V28-V42 performance optimization series brought FPS to stable 80+ on Quest.
 
 ---
 
